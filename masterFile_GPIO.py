@@ -4,9 +4,9 @@
 from scipy import signal
 from scipy.signal import butter,iirnotch, filtfilt
 from scipy.signal import freqz
+from gpiozero import Button
 #from signal import pause
 
-import RPi.GPIO as GPIO
 import time
 import matplotlib.pyplot as plt 
 import os
@@ -174,7 +174,7 @@ def mainMenu():
     print("2. Record Live Audio")
     print("3. Exit")
 
-# filter menu
+# ---- Filter menu -------
 # --  Filter GPIO Specs: -- 
 # LPF = GPIO(18) ; pin 12 
 # HPF = GPIO(23) ; pin 16
@@ -183,11 +183,10 @@ def mainMenu():
 def filterMenu(x,fs,base_name):
     while True:
         # GPIO Setup
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setwarnings(False)
-        GPIO.setup(18, GPIO.IN, pull_up_down=GPIO.PUD_UP) # LPF Input pin with pullup
-        GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_UP) # HPF Input pin with internal pullup
-        GPIO.setup(24, GPIO.IN, pull_up_down=GPIO.PUD_UP) # BPF Input pin with internal pullup
+        LPFbutton = Button(18, pull_up = True) # LPF Input pin with internal pullup
+        HPFbutton = Button(23, pull_up = True) # HPF Input pin with internal pullup
+        BPFbutton = Button(24, pull_up = True) # BPF Input pin with internal pullup
+ 
 
         # menu
         print("\n-- FILTER MENU --")
@@ -202,19 +201,19 @@ def filterMenu(x,fs,base_name):
 
         # input choices
         #------- LPF -----------
-        if filtChoice == "1" | GPIO.input(18):
+        if filtChoice == "1" | LPFbutton.is_pressed:
             y, fc, order = initLPF(x,fs)
             x = y # update audio to be filtered
             print(f"Applied Low-Pass filter")
             print(f"Specs: fc = {fc} Hz | order = {order}")
         #------- HPF -----------
-        elif filtChoice == "2" | GPIO.input(23):
+        elif filtChoice == "2" | HPFbutton.is_pressed:
             y, fc, order = initHPF(x,fs)
             x = y # update audio to be filtered
             print(f"Applied HPF-Pass filter")
             print(f"Specs: fc = {fc} Hz | order = {order}")
         #------- BPF -----------
-        elif filtChoice == "3" | GPIO.input(24):
+        elif filtChoice == "3" | BPFbutton.is_pressed:
             y, low,high, order = initBPF(x,fs)
             x = y # update audio to be filtered
             print("Applied BPF-Pass filter")
