@@ -412,6 +412,7 @@ class FFTDisplayPage(QWidget):
 # Main Window
 # -----------------------------
 class MainWindow(QMainWindow):
+    gpioFilterSignal = pyqtSignal(str)
     def __init__(self):
         super().__init__()
 
@@ -446,20 +447,22 @@ class MainWindow(QMainWindow):
         self._position_debug_exit_button()
 
         self.show_menu()
+        
+        self.gpioFilterSignal.connect(self.handleGPIO)
 
         # ----------- Filter GPIO Setup --------------------
-        self.lpfButton = Button(17, pull_up = True, bounce_time = 0.1)
+        self.lpfButton = Button(17, pull_up = True, bounce_time = 0.2)
         self.hpfButton = Button(27, pull_up = True, bounce_time = 0.1)
         self.bpfButton = Button(22, pull_up = True, bounce_time = 0.1)
 
         # Filter function calls on pressed
-        self.lpfButton.when_pressed = lambda: print("LPF PRESS")
+        self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
         self.hpfButton.when_pressed = self.hpfPressed
         self.bpfButton.when_pressed = self.bpfPressed
 
     # Filter Button Press Functions
-    def lpfPressed(self):
-        self.gpioFilterPressed("LPF")
+    def handleGPIO(self, mode)
+        
     def hpfPressed(self):
         self.gpioFilterPressed("HPF")
     def bpfPressed(self):
