@@ -17,8 +17,9 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QFrame, QComboBox, QSpinBox, QCheckBox,
     QGridLayout, QSlider
 )
-from gpiozero import button
+from gpiozero import Button
 from dsp import applyFilter
+from signal import pause
 
 
 # -----------------------------
@@ -446,9 +447,9 @@ class MainWindow(QMainWindow):
         self.show_menu()
 
         # ----------- Filter GPIO Setup --------------------
-        self.lpfButton = Button(17, pull_up = True)
-        self.hpfButton = Button(27, pull_up = True)
-        self.bpfButton = Button(22, pull_up = True)
+        self.lpfButton = Button(17, pull_up = True, bounce_time = 0.1)
+        self.hpfButton = Button(27, pull_up = True, bounce_time = 0.1)
+        self.bpfButton = Button(22, pull_up = True, bounce_time = 0.1)
 
         # Filter function calls on pressed
         self.lpfButton.when_pressed = self.lpfPressed
@@ -1156,3 +1157,4 @@ def main():
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
+
