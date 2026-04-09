@@ -26,11 +26,11 @@ def LPF(x,fs):
     sos = butter(order, Wn, btype = "low", output="sos")
 
     # Plot Bode
-    plotBode(sos,fs,"Low-Pass Filter Bode Plot")
-    y = sosfiltfilt(sos,x)
+    #plotBode(sos,fs,"Low-Pass Filter Bode Plot")
+    #y = sosfiltfilt(sos,x)
 
     # Plot time graph 
-    plotTime(x,y,fs,title = "Low-Pass Filter Time Graph")
+    #plotTime(x,y,fs,title = "Low-Pass Filter Time Graph")
     return sosfiltfilt(sos, x)
     
 # HPF
@@ -206,3 +206,4 @@ def plotFFT_compare(x, y, fs):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+
