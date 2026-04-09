@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 from gpiozero import Button
 from dsp import applyFilter
 from signal import pause
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 
 
 # -----------------------------
@@ -452,7 +453,7 @@ class MainWindow(QMainWindow):
         self.bpfButton = Button(22, pull_up = True, bounce_time = 0.1)
 
         # Filter function calls on pressed
-        self.lpfButton.when_pressed = self.lpfPressed
+        self.lpfButton.when_pressed = lambda: print("LPF PRESS")
         self.hpfButton.when_pressed = self.hpfPressed
         self.bpfButton.when_pressed = self.bpfPressed
 
@@ -475,7 +476,7 @@ class MainWindow(QMainWindow):
         
         try:
             self.io_page.status_label.setText(f"Status: Applying {mode}...")
-            output_file = self.applyFiltertoCurrAudio(mode)
+            output_file = self.applyFiltertoCurrAudio(self.currAudio,mode)
 
             if output_file is not None:
                 self.io_page.status_label.setText(f"Status: {mode} applied.")
