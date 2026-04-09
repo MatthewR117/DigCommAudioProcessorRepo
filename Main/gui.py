@@ -461,7 +461,29 @@ class MainWindow(QMainWindow):
         self.bpfButton.when_pressed = self.bpfPressed
 
     # Filter Button Press Functions
-    def handleGPIO(self, mode)
+    def handleGPIO(self, mode):
+    # only allow filtering on listen page
+    if self.stack.currentWidget() is not self.io_page:
+        return
+
+    if self.currAudio is None:
+        self.io_page.status_label.setText("Status: No audio file loaded.")
+        return
+
+    try:
+        self.io_page.status_label.setText(f"Status: Applying {mode}...")
+        output_file = self.applyFiltertoCurrAudio(mode)
+
+        if output_file is not None:
+            self.processedAudio = output_file
+            self.io_page.status_label.setText(f"Status: {mode} applied.")
+            self.io_page.file_label.setText(f"Selected file: {Path(output_file).name}")
+
+            # optional: restart playback on filtered file
+            self.io_page.play_processed_or_current()
+    except Exception as e:
+        self.io_page.status_label.setText(f"Status: {mode} failed.")
+        QMessageBox.warning(self, "Filter Error", str(e))
         
     def hpfPressed(self):
         self.gpioFilterPressed("HPF")
