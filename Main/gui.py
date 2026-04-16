@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
+import datetime
 
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -413,12 +414,13 @@ class FFTDisplayPage(QWidget):
 # -----------------------------
 class MainWindow(QMainWindow):
     gpioFilterSignal = pyqtSignal(str)
+    
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Digital Audio Post Processor")
-        self.resize(1400, 900)
-        self.setStyleSheet("background-color: rgb(0, 0, 0);")
+        self.resize(1024, 600)
+        self.setStyleSheet("background-color: rgb(125, 125, 150);")
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -437,7 +439,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.io_page)
         self.stack.addWidget(self.fft_page)
 
-        # Shared Variables
+        # ---- Shared Variables ----
         self.currAudio = None  # Holds the current audio file, unfiltered
         self.currFS = None         # Holds the sample rate
         self.procAudio = None  # Holds processed audio, filtered
@@ -457,62 +459,34 @@ class MainWindow(QMainWindow):
 
         # Filter function calls on pressed
         self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
-        self.hpfButton.when_pressed = self.hpfPressed
-        self.bpfButton.when_pressed = self.bpfPressed
+        self.hpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("HPF")
+        self.bpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("BPF")
 
     # Filter Button Press Functions
     def handleGPIO(self, mode):
         # only allow filtering on listen page
         if self.stack.currentWidget() is not self.io_page:
             return
-    
+
         if self.currAudio is None:
             self.io_page.status_label.setText("Status: No audio file loaded.")
             return
-    
+
         try:
             self.io_page.status_label.setText(f"Status: Applying {mode}...")
             output_file = self.applyFiltertoCurrAudio(mode)
-    
+
             if output_file is not None:
                 self.processedAudio = output_file
                 self.io_page.status_label.setText(f"Status: {mode} applied.")
                 self.io_page.file_label.setText(f"Selected file: {Path(output_file).name}")
-    
+
                 # optional: restart playback on filtered file
-                self.io_page.play_processed_or_current()
+                #self.io_page.play_processed_or_current()
         except Exception as e:
             self.io_page.status_label.setText(f"Status: {mode} failed.")
             QMessageBox.warning(self, "Filter Error", str(e))
-        
-    def hpfPressed(self):
-        self.gpioFilterPressed("HPF")
-    def bpfPressed(self):
-        self.gpioFilterPressed("BPF")
-
-    def gpioFilterPressed(self, mode):
-        # only respond when on the listening state
-        if self.stack.currentWidget() is not self.io_page:
-            return
-        
-        if self.currAudio is None:
-            self.io_page.status_label.setText("Status: No file loaded.")
-            return
-        
-        try:
-            self.io_page.status_label.setText(f"Status: Applying {mode}...")
-            output_file = self.applyFiltertoCurrAudio(self.currAudio,mode)
-
-            if output_file is not None:
-                self.io_page.status_label.setText(f"Status: {mode} applied.")
-                self.io_page.file_label.setText(f"Selected file: {Path(output_file).name}")
-
-                # play automatically after filtering
-                self.io_page.play_audio()
-        except Exception as e:
-            self.io_page.status_label.setText(f"Status: {mode} failed :(")
-            QMessageBox.warning(self,"Filter Error",str(e))
-
+            
     def _position_debug_exit_button(self):
         self.debug_exit_btn.move(12, 12)
 
@@ -539,12 +513,23 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.fft_page)
         if file_path is not None:
             self.fft_page.load_and_plot_file(file_path)
+            
     # Apply filter to current audio file 
     def applyFiltertoCurrAudio(self, mode):
         if self.currAudio is None:
             return None
+        # variable to hold current date for file output
+        date = datetime.datetime.now().strftime("%Y-%m-%d")
         
-        outputPath = Path("processed_output.wav") # add MM/DD/YYY later
+        # append filter type to file name
+        if(mode == "LPF"):
+            outputPath = Path(f"filtered_output_{date}_LPF.wav")
+        elif(mode == "HPF"):
+            outputPath = Path(f"filtered_output_{date}_HPF.wav")
+        elif(mode == "BPF"):
+            outputPath = Path(f"filtered_output_{date}_BPF.wav")
+        else:
+            outputPath = Path(f"filtered_output_{date}.wav") # add filter type later
 
         # Call apply filter from dsp.py
         applyFilter(
@@ -553,9 +538,11 @@ class MainWindow(QMainWindow):
             mode,
             normalize= True
         )
-
+        
         self.procAudio = outputPath
         self.currFilterMode = mode
+        
+    
 
         return outputPath
     
@@ -1183,4 +1170,3 @@ def main():
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
-
