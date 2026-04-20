@@ -15,17 +15,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
+from gpiozero import Button
 from dsp import applyFilter
 from compressor import process_audio
-
-# GPIO import with desktop-safe fallback
-try:
-    from gpiozero import Button
-    GPIO_AVAILABLE = True
-except Exception:
-    Button = None
-    GPIO_AVAILABLE = False
-
 
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
 
@@ -627,7 +619,7 @@ class RecordAudioPage(QWidget):
 
 
 # -----------------------------
-# Main Window
+# Main Window (Pi-only)
 # -----------------------------
 class MainWindow(QMainWindow):
     gpioFilterSignal = pyqtSignal(str)
@@ -653,7 +645,6 @@ class MainWindow(QMainWindow):
         self.debug_exit_btn = make_debug_exit_button(self)
         self._position_debug_exit_button()
 
-        # Shared audio state
         self.currAudio = None
         self.procAudio = None
         self.currFilterMode = None
@@ -661,37 +652,24 @@ class MainWindow(QMainWindow):
         self.gpioFilterSignal.connect(self.handleGPIO)
         self.show_menu()
 
-        # GPIO setup only on Raspberry Pi
-        self.gpio_enabled = False
+        # Pi 5 GPIO setup
+        self.lpfButton = Button(17, pull_up=True, bounce_time=0.2)
+        self.hpfButton = Button(27, pull_up=True, bounce_time=0.2)
+        self.bpfButton = Button(22, pull_up=True, bounce_time=0.2)
 
-        try:
-            if GPIO_AVAILABLE:
-                self.lpfButton = Button(17, pull_up=True, bounce_time=0.2)
-                self.hpfButton = Button(27, pull_up=True, bounce_time=0.2)
-                self.bpfButton = Button(22, pull_up=True, bounce_time=0.2)
+        self.autoQButton = Button(16, pull_up=True, bounce_time=0.2)
+        self.eqButton = Button(23, pull_up=True, bounce_time=0.2)
+        self.compButton = Button(15, pull_up=True, bounce_time=0.2)
+        self.pwrButton = Button(20, pull_up=True, bounce_time=0.2)
 
-                self.autoQButton = Button(16, pull_up=True, bounce_time=0.2)
-                self.eqButton = Button(23, pull_up=True, bounce_time=0.2)
-                self.compButton = Button(15, pull_up=True, bounce_time=0.2)
-                self.pwrButton = Button(20, pull_up=True, bounce_time=0.2)
+        self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
+        self.hpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("HPF")
+        self.bpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("BPF")
 
-                self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
-                self.hpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("HPF")
-                self.bpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("BPF")
-
-                self.autoQButton.when_pressed = lambda: self.gpioFilterSignal.emit("AUTO")
-                self.eqButton.when_pressed = lambda: self.gpioFilterSignal.emit("EQ")
-                self.compButton.when_pressed = lambda: self.gpioFilterSignal.emit("COMP")
-                self.pwrButton.when_pressed = lambda: self.gpioFilterSignal.emit("PWR")
-
-                self.gpio_enabled = True
-                print("GPIO initialized successfully.")
-            else:
-                print("GPIO module not available. Running in desktop test mode.")
-
-        except Exception as e:
-            self.gpio_enabled = False
-            print(f"GPIO unavailable on this machine. Running in desktop test mode. Details: {e}")
+        self.autoQButton.when_pressed = lambda: self.gpioFilterSignal.emit("AUTO")
+        self.eqButton.when_pressed = lambda: self.gpioFilterSignal.emit("EQ")
+        self.compButton.when_pressed = lambda: self.gpioFilterSignal.emit("COMP")
+        self.pwrButton.when_pressed = lambda: self.gpioFilterSignal.emit("PWR")
 
     def handleGPIO(self, mode):
         if self.stack.currentWidget() is not self.upload_page:
@@ -707,7 +685,7 @@ class MainWindow(QMainWindow):
             if mode == "COMP":
                 output_file = self.applyCompressionToCurrAudio()
             else:
-                output_file = self.applyFiltertoCurrAudio(mode)
+                output_file = self.applyFilterToCurrAudio(mode)
 
             if output_file is not None:
                 self.procAudio = output_file
@@ -725,7 +703,7 @@ class MainWindow(QMainWindow):
             self.upload_page.status_label.setText(f"Status: {mode} failed.")
             QMessageBox.warning(self, "Processing Error", str(e))
 
-    def applyFiltertoCurrAudio(self, mode):
+    def applyFilterToCurrAudio(self, mode):
         if self.currAudio is None:
             return None
 
