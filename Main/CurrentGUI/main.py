@@ -17,7 +17,6 @@ from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from gpiozero import Button
 from dsp import applyFilter
-from compressor import process_audio
 
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
 
@@ -682,10 +681,7 @@ class MainWindow(QMainWindow):
         try:
             self.upload_page.status_label.setText(f"Status: Applying {mode}...")
 
-            if mode == "COMP":
-                output_file = self.applyCompressionToCurrAudio()
-            else:
-                output_file = self.applyFilterToCurrAudio(mode)
+            output_file = self.applyFilterToCurrAudio(mode)
 
             if output_file is not None:
                 self.procAudio = output_file
@@ -719,27 +715,6 @@ class MainWindow(QMainWindow):
 
         self.procAudio = output_path
         self.currFilterMode = mode
-        return output_path
-
-    def applyCompressionToCurrAudio(self):
-        if self.currAudio is None:
-            return None
-
-        date = datetime.datetime.now().strftime("%Y-%m-%d")
-        output_path = Path(f"{self.currAudio.stem}_COMP_{date}.wav")
-
-        process_audio(
-            input_path=Path(self.currAudio),
-            output_path=output_path,
-            threshold_db=-24.0,
-            ratio=8.0,
-            attack_ms=3.0,
-            release_ms=100.0,
-            makeup_gain_db=2.0
-        )
-
-        self.procAudio = output_path
-        self.currFilterMode = "COMP"
         return output_path
 
     def _position_debug_exit_button(self):
