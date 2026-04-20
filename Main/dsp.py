@@ -7,14 +7,14 @@ from scipy.signal import butter,iirnotch, filtfilt, sosfiltfilt
 from scipy.signal import freqz
 
 import soundfile as sf
-import sounddevice as sd 
+import sounddevice as sd
+import datetime
 # !! May or may not need !!
 import matplotlib.pyplot as plt 
 import os
 import numpy as np
 
 # ------------ Filter Functions ------------------
-# Initialize Functions
 # LPF
 def LPF(x,fs):       
     fc = 3000 # !! USING 3 kHz FOR NOW, UNTIL MORE GUI !!
@@ -44,11 +44,11 @@ def HPF(x,fs):
     sos = butter(order, Wn, btype = "high", output = "sos")
 
     # Plot Bode
-    plotBode(sos,fs,"High-Pass Filter Bode Plot")
+    #plotBode(sos,fs,"High-Pass Filter Bode Plot")
     y = sosfiltfilt(sos,x)
 
     # Plot time graph 
-    plotTime(x,y,fs,title = "High-Pass Filter Time Graph")
+    #plotTime(x,y,fs,title = "High-Pass Filter Time Graph")
     return sosfiltfilt(sos,x)
 
 # BPF 
@@ -62,11 +62,11 @@ def BPF(x,fs):
 
     sos = butter(order, [low,high], btype='band', output="sos")
     # plot bode
-    plotBode(sos,fs, title="Band-Pass Bode Plot")
-    y = sosfiltfilt(sos,x)
+    #plotBode(sos,fs, title="Band-Pass Bode Plot")
+    #y = sosfiltfilt(sos,x)
 
     # plot time graph
-    plotTime(x,y,fs,title="Band-Pass Filter Time Graph")
+    #plotTime(x,y,fs,title="Band-Pass Filter Time Graph")
     return sosfiltfilt(sos,x)
 
 # NOTCH
@@ -82,7 +82,17 @@ def NOTCH(x,fs):
     return y,f0,Q
    
 # 3 Band Multi Eq
-def threeBandEQ(x,fs,lowGain,midGain,highGain,low_fc = 300, high_fc = 3000,order=4):
+def threeBandEQ(x,fs):
+    # for rn since caden is lackin on gui...
+    # gain in dB
+    lowGain  = 3.0
+    midGain = 0.3
+    highGain = 0.2
+    
+    low_fc = 100
+    high_fc = 5000
+    order=4
+    
     # The 3 band "filters"
     sosLow = butter(order, low_fc/(0.5*fs),btype='low',output='sos') #Like LPF
     sosMid = butter(order, [low_fc/(0.5*fs),high_fc/(0.5*fs)],btype='band',output='sos') #Like BPF
@@ -109,9 +119,8 @@ def normalizeAudio(x):
     return x
 
 # Apply filter function
-def applyFilter(infile, outfile, normalize = True):
+def applyFilter(infile, outfile, mode, normalize = True):
     x,fs = sf.read(infile, always_2d = False)
-    mode = "mode"
 
     # convert to mono for rn 
     if x.ndim == 2:
@@ -126,6 +135,8 @@ def applyFilter(infile, outfile, normalize = True):
         y = HPF(x,fs)
     elif mode == "BPF":
         y = BPF(x,fs)
+    elif mode == "EQ":
+        y = threeBandEQ(x,fs)
     else:
         y = x 
     
@@ -134,9 +145,6 @@ def applyFilter(infile, outfile, normalize = True):
     
     sf.write(outfile, y, fs)
     return outfile
-    
-
-
 
 # !! May or may not need !!
 # ------------ Plot Functions ------------------ 
@@ -206,4 +214,3 @@ def plotFFT_compare(x, y, fs):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
-
