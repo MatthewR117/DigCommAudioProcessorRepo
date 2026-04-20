@@ -1,6 +1,15 @@
+# GUI + DSP | 4/20/2026
+# Current Features:
+# - Main 3 filters, EQ, Compressors
+# - Temp output and save output
+# - Scrolling Audio Waveform
+
+# Created by Matthew Reyna and Cadden Craddock
+
 import sys
 from pathlib import Path
 import datetime
+import os
 
 import numpy as np
 import sounddevice as sd
@@ -19,8 +28,136 @@ from gpiozero import Button
 from dsp import applyFilter
 
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
+#  Global variable to hold current date for file output
+date = datetime.datetime.now().strftime("%Y-%m-%d")
 
+# -----------------------------
+#  !!!!!!!!!!!!!!!!!!!!! MAIN RETARD MAIN !!!!!!!!!!!!!!!!
+# -----------------------------
+class MainWindow(QMainWindow): 
+    
+    gpioFilterSignal = pyqtSignal(str)
 
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("Digital Audio Post Processor")
+        self.setFixedSize(1024, 600)
+        self.setStyleSheet("background-color: rgb(100, 100, 100);")
+
+        self.stack = QStackedWidget()
+        self.setCentralWidget(self.stack)
+
+        self.menu_page = MenuPage(parent=self)
+        self.upload_page = UploadAudioPage(parent=self)
+        self.record_page = RecordAudioPage(parent=self)
+
+        self.stack.addWidget(self.menu_page)
+        self.stack.addWidget(self.upload_page)
+        self.stack.addWidget(self.record_page)
+
+        self.debug_exit_btn = make_debug_exit_button(self)
+        self._position_debug_exit_button()
+        
+        # ---- Shared Variables ----
+        self.currAudio = None  # Holds the current audio file, unfiltered
+        self.currFS = None         # Holds the sample rate
+        self.procAudio = None  # Holds processed audio, filtered
+        self.currFilterMode = None # Holds current state of  filter selected
+
+        self.gpioFilterSignal.connect(self.handleGPIO)
+        self.show_menu()
+
+        # ----------- Filter GPIO Setup --------------------
+        # Top Buttons
+        self.lpfButton = Button(17, pull_up=True, bounce_time=0.2)
+        self.hpfButton = Button(27, pull_up=True, bounce_time=0.2)
+        self.bpfButton = Button(22, pull_up=True, bounce_time=0.2)
+        # Bottom Buttons
+        self.autoQButton = Button(16, pull_up=True, bounce_time=0.2)
+        self.eqButton = Button(23, pull_up=True, bounce_time=0.2)
+        self.compButton = Button(15, pull_up=True, bounce_time=0.2)
+        self.pwrButton = Button(20, pull_up=True, bounce_time=0.2)
+        # ------------ GPIO Pressed ----------------------------------
+        self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
+        self.hpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("HPF")
+        self.bpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("BPF")
+
+        self.autoQButton.when_pressed = lambda: self.gpioFilterSignal.emit("AUTO")
+        self.eqButton.when_pressed = lambda: self.gpioFilterSignal.emit("EQ")
+        self.compButton.when_pressed = lambda: self.gpioFilterSignal.emit("COMP")
+        self.pwrButton.when_pressed = lambda: self.gpioFilterSignal.emit("PWR")
+        #--------------------------------------------------------------------------
+    
+    # Filter Button Press Function
+    def handleGPIO(self, mode):
+        if self.stack.currentWidget() is not self.upload_page:
+            return
+
+        if self.currAudio is None:
+            self.upload_page.status_label.setText("Status: No audio file loaded.")
+            return
+
+        try:
+            self.upload_page.status_label.setText(f"Status: Applying {mode}...")
+            
+            # hold the filtered audio in temp, unsaved
+            tempOutFile = self.applyFilterToCurrAudio(mode)
+
+            if tempOutFile is not None:
+                self.procAudio = tempOutFile
+                self.upload_page.status_label.setText(f"Status: {mode} applied.")
+                self.upload_page.file_label.setText(f"Selected file: {Path(tempOutFile).name}")
+
+                if self.upload_page.current_plot_mode == "waveform":
+                    self.upload_page.plot_waveform(Path(tempOutFile))
+                else:
+                    self.upload_page.plot_fft(Path(tempOutFile))
+                # Play audio after filtering (maybe make it live rather than restart)
+                self.upload_page.play_audio()
+
+        except Exception as e:
+            self.upload_page.status_label.setText(f"Status: {mode} failed.")
+            QMessageBox.warning(self, "Processing Error", str(e))
+        
+        # delete temp file     
+        os.remove(f"{self.currAudio.stem}_{mode}_{date}.wav")
+
+    def applyFilterToCurrAudio(self, mode):
+        if self.currAudio is None:
+            return None
+
+        #date = datetime.datetime.now().strftime("%Y-%m-%d")
+        output_path = Path(f"{self.currAudio.stem}_{mode}_{date}.wav")
+
+        applyFilter(
+            str(self.currAudio),
+            str(output_path),
+            mode,
+            normalize=True
+        )
+
+        self.procAudio = output_path
+        self.currFilterMode = mode
+        return output_path
+
+    def _position_debug_exit_button(self):
+        self.debug_exit_btn.move(10, 10)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_debug_exit_button()
+
+    def show_menu(self):
+        self.stack.setCurrentWidget(self.menu_page)
+
+    def show_upload_audio(self):
+        self.stack.setCurrentWidget(self.upload_page)
+        self.upload_page.on_page_shown()
+
+    def show_record_audio(self):
+        self.stack.setCurrentWidget(self.record_page)
+        
 # -----------------------------
 # Shared UI Helpers
 # -----------------------------
@@ -181,7 +318,7 @@ class UploadAudioPage(QWidget):
 
         self.canvas = None
         self.figure = None
-        self.current_plot_mode = "fft"
+        self.current_plot_mode = "waveform"
 
         self.build_ui()
 
@@ -190,8 +327,8 @@ class UploadAudioPage(QWidget):
         layout.setContentsMargins(18, 55, 18, 18)
         layout.setSpacing(10)
 
-        layout.addWidget(make_title("Upload Audio", pt=28))
-        layout.addWidget(make_divider())
+        layout.addWidget(make_title("Upload Audio", pt=12))
+        #layout.addWidget(make_divider())
 
         self.file_label = QLabel("Selected file: (none)")
         self.file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -615,124 +752,6 @@ class RecordAudioPage(QWidget):
             self.stream = None
 
         self.main_window.show_menu()
-
-
-# -----------------------------
-# Main Window (Pi-only)
-# -----------------------------
-class MainWindow(QMainWindow):
-    gpioFilterSignal = pyqtSignal(str)
-
-    def __init__(self):
-        super().__init__()
-
-        self.setWindowTitle("Digital Audio Post Processor")
-        self.setFixedSize(1024, 600)
-        self.setStyleSheet("background-color: rgb(100, 100, 100);")
-
-        self.stack = QStackedWidget()
-        self.setCentralWidget(self.stack)
-
-        self.menu_page = MenuPage(parent=self)
-        self.upload_page = UploadAudioPage(parent=self)
-        self.record_page = RecordAudioPage(parent=self)
-
-        self.stack.addWidget(self.menu_page)
-        self.stack.addWidget(self.upload_page)
-        self.stack.addWidget(self.record_page)
-
-        self.debug_exit_btn = make_debug_exit_button(self)
-        self._position_debug_exit_button()
-
-        self.currAudio = None
-        self.procAudio = None
-        self.currFilterMode = None
-
-        self.gpioFilterSignal.connect(self.handleGPIO)
-        self.show_menu()
-
-        # Pi 5 GPIO setup
-        self.lpfButton = Button(17, pull_up=True, bounce_time=0.2)
-        self.hpfButton = Button(27, pull_up=True, bounce_time=0.2)
-        self.bpfButton = Button(22, pull_up=True, bounce_time=0.2)
-
-        self.autoQButton = Button(16, pull_up=True, bounce_time=0.2)
-        self.eqButton = Button(23, pull_up=True, bounce_time=0.2)
-        self.compButton = Button(15, pull_up=True, bounce_time=0.2)
-        self.pwrButton = Button(20, pull_up=True, bounce_time=0.2)
-
-        self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
-        self.hpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("HPF")
-        self.bpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("BPF")
-
-        self.autoQButton.when_pressed = lambda: self.gpioFilterSignal.emit("AUTO")
-        self.eqButton.when_pressed = lambda: self.gpioFilterSignal.emit("EQ")
-        self.compButton.when_pressed = lambda: self.gpioFilterSignal.emit("COMP")
-        self.pwrButton.when_pressed = lambda: self.gpioFilterSignal.emit("PWR")
-
-    def handleGPIO(self, mode):
-        if self.stack.currentWidget() is not self.upload_page:
-            return
-
-        if self.currAudio is None:
-            self.upload_page.status_label.setText("Status: No audio file loaded.")
-            return
-
-        try:
-            self.upload_page.status_label.setText(f"Status: Applying {mode}...")
-
-            output_file = self.applyFilterToCurrAudio(mode)
-
-            if output_file is not None:
-                self.procAudio = output_file
-                self.upload_page.status_label.setText(f"Status: {mode} applied.")
-                self.upload_page.file_label.setText(f"Selected file: {Path(output_file).name}")
-
-                if self.upload_page.current_plot_mode == "waveform":
-                    self.upload_page.plot_waveform(Path(output_file))
-                else:
-                    self.upload_page.plot_fft(Path(output_file))
-
-                self.upload_page.play_audio()
-
-        except Exception as e:
-            self.upload_page.status_label.setText(f"Status: {mode} failed.")
-            QMessageBox.warning(self, "Processing Error", str(e))
-
-    def applyFilterToCurrAudio(self, mode):
-        if self.currAudio is None:
-            return None
-
-        date = datetime.datetime.now().strftime("%Y-%m-%d")
-        output_path = Path(f"{self.currAudio.stem}_{mode}_{date}.wav")
-
-        applyFilter(
-            str(self.currAudio),
-            str(output_path),
-            mode,
-            normalize=True
-        )
-
-        self.procAudio = output_path
-        self.currFilterMode = mode
-        return output_path
-
-    def _position_debug_exit_button(self):
-        self.debug_exit_btn.move(10, 10)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._position_debug_exit_button()
-
-    def show_menu(self):
-        self.stack.setCurrentWidget(self.menu_page)
-
-    def show_upload_audio(self):
-        self.stack.setCurrentWidget(self.upload_page)
-        self.upload_page.on_page_shown()
-
-    def show_record_audio(self):
-        self.stack.setCurrentWidget(self.record_page)
 
 
 # -----------------------------
