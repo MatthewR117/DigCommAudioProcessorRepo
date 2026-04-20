@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 import datetime
 import os
-
+import shutil
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -64,6 +64,7 @@ class MainWindow(QMainWindow):
         self.currFS = None         # Holds the sample rate
         self.procAudio = None  # Holds processed audio, filtered
         self.currFilterMode = None # Holds current state of  filter selected
+        self.tempAudio = None # Holds temp filtered audio, get deleted lil bro
 
         self.gpioFilterSignal.connect(self.handleGPIO)
         self.show_menu()
@@ -119,15 +120,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.upload_page.status_label.setText(f"Status: {mode} failed.")
             QMessageBox.warning(self, "Processing Error", str(e))
-        
-        # delete temp file     
-        os.remove(f"{self.currAudio.stem}_{mode}_{date}.wav")
+    
 
+    # --------------------- Apply filter to current audio function -----------------
     def applyFilterToCurrAudio(self, mode):
         if self.currAudio is None:
             return None
+        
+        # delete temp audio 
+        self.deleteTemp()
 
-        #date = datetime.datetime.now().strftime("%Y-%m-%d")
+        # Save file name for filtered audio
         output_path = Path(f"{self.currAudio.stem}_{mode}_{date}.wav")
 
         applyFilter(
@@ -140,6 +143,20 @@ class MainWindow(QMainWindow):
         self.procAudio = output_path
         self.currFilterMode = mode
         return output_path
+
+    # delete temp audio function
+    def deleteTemp(self):
+        if self.tempAudio is not None:
+            try:
+                if os.path.exists(self.procAudio):
+                    # delete temp file     
+                     os.remove(self.procAudio)
+            except Exception:
+                pass
+            # reset current mode and processed audio to none
+            self.procAudio = None
+            self.currFilterMode = None 
+                    
 
     def _position_debug_exit_button(self):
         self.debug_exit_btn.move(10, 10)
@@ -303,7 +320,7 @@ def save_wav_file_dialog(parent: QWidget, title: str, default_name: str = "recor
 
 
 # -----------------------------
-# Upload Audio Page
+#   $$$$$$$$$$$$  Upload Audio Page $$$$$$$$$$$$$$
 # -----------------------------
 class UploadAudioPage(QWidget):
     def __init__(self, parent: QMainWindow):
@@ -321,6 +338,25 @@ class UploadAudioPage(QWidget):
         self.current_plot_mode = "waveform"
 
         self.build_ui()
+
+    # save audio function 
+    def saveAudio(self):
+        if self.main_window.procAudio is None:
+            QMessageBox.information(self, "Save Audio", "No filtered audio to save, chud")
+            return
+        
+        # Save filtered to .wav
+        outputFilt = f"{self.main_window.currAudio.stem}_{self.main_window.mode}_{date}.wav" # "filename_filter_date.wav"
+        savePath = save_wav_file_dialog(self, "Save Filtered Audio",outputFilt)
+
+        if not savePath:
+            return
+        
+        try:
+            shutil.copy(self.main_window.procAudio, savePath)
+            self.status_label.setText(f"Status: Saved as {Path(savePath).name}")
+        except Exception as e:
+            QMessageBox.warning(self, "Save Error", str(e))
 
     def build_ui(self):
         layout = QVBoxLayout(self)
@@ -438,7 +474,9 @@ class UploadAudioPage(QWidget):
 
         self.load_audio_file(file_path)
 
+    # Load audio file function
     def load_audio_file(self, file_path: str):
+        self.main_window.deleteTemp()
         audio_path = Path(file_path)
 
         self.main_window.currAudio = audio_path
@@ -507,7 +545,9 @@ class UploadAudioPage(QWidget):
             self.status_label.setText("Status: Waveform failed.")
             QMessageBox.warning(self, "Waveform Error", str(e))
 
+    # Clear audio function
     def clear_audio(self):
+        self.main_window.deleteTemp()
         self.player.stop()
 
         self.main_window.currAudio = None
