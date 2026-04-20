@@ -1,3 +1,6 @@
+# GUI + DSP
+# Created by Caden Craddock and Matthew Reyna
+# 4/16/2026
 import sys
 from pathlib import Path
 
