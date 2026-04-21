@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
-from dsp import applyFilter
+from dsp import applyFilter, get_bode_data
 
 # Desktop-safe GPIO import
 try:
@@ -599,19 +599,15 @@ class UploadAudioPage(QWidget):
         self.canvas.draw()
 
     def plot_bode_placeholder(self, file_path: Path):
-        x, fs = self._load_audio_mono(file_path)
+        _, fs = self._load_audio_mono(file_path)
 
-        end_samp = min(len(x), int(1.0 * fs))
-        seg = x[:end_samp]
-        seg = seg - np.mean(seg)
+        mode = self.main_window.currFilterMode
+        if mode is None:
+            raise ValueError("No active filter selected. Apply a filter first to view its Bode plot.")
 
-        n = len(seg)
-        seg_w = seg * np.hanning(n)
-        nfft = 1 if n <= 1 else 2 ** int(np.ceil(np.log2(n)))
-
-        x_fft = np.fft.rfft(seg_w, n=nfft)
-        freqs = np.fft.rfftfreq(nfft, d=1.0 / fs)
-        mag_db = 20.0 * np.log10(np.abs(x_fft) + 1e-12)
+        w, mag_db = get_bode_data(mode, fs)
+        if w is None or mag_db is None:
+            raise ValueError(f"Bode plot is not supported for mode: {mode}")
 
         self.playhead_line = None
         self.current_waveform_duration = None
@@ -622,11 +618,11 @@ class UploadAudioPage(QWidget):
         self.figure.clear()
         ax = self.figure.add_subplot(111)
 
-        ax.semilogx(freqs[1:], mag_db[1:], linewidth=1.0)
+        ax.semilogx(w, mag_db, linewidth=1.5)
         ax.set_xlabel("Frequency (Hz)")
         ax.set_ylabel("Magnitude (dB)")
         ax.grid(True, which="both", alpha=0.3)
-        ax.set_xlim(max(10, freqs[1]), fs / 2.0)
+        ax.set_xlim(10, fs / 2.0)
 
         self.figure.tight_layout()
         self.canvas.draw()
