@@ -1,53 +1,79 @@
-# DSP Code for Digital Audio Post Processor
-# Holds all functions for digital filters:
-# Lowpass, Highpass, Bandpass, Notch, EQ, Compression
-# Rewritten to include COMP mode in applyFilter()
-
-from scipy.signal import butter, iirnotch, filtfilt, sosfiltfilt, freqz
+from scipy.signal import butter, iirnotch, filtfilt, sosfiltfilt, freqz, sosfreqz
 
 import soundfile as sf
 import numpy as np
 import matplotlib.pyplot as plt
 
 
-# ------------ Filter Functions ------------------
+# -----------------------------
+# Utility
+# -----------------------------
+def clamp_frequency(value, low, high):
+    return max(low, min(high, value))
 
-# LPF
-def LPF(x, fs):
-    fc = 3000
+
+def normalizeAudio(x):
+    peak = np.max(np.abs(x))
+    if peak > 0:
+        x = x / peak
+    return x
+
+
+def dbToLinear(db):
+    return 10 ** (db / 20)
+
+
+def linearToDb(x, floor=1e-12):
+    return 20.0 * np.log10(np.maximum(np.abs(x), floor))
+
+
+# -----------------------------
+# Filter Builders
+# -----------------------------
+def get_lpf_sos(fs, cutoff=3000):
+    cutoff = clamp_frequency(cutoff, 20, int(fs / 2) - 1)
     order = 4
-    nyq = 0.5 * fs
-    wn = fc / nyq
-
-    sos = butter(order, wn, btype="low", output="sos")
-    return sosfiltfilt(sos, x)
+    wn = cutoff / (0.5 * fs)
+    return butter(order, wn, btype="low", output="sos")
 
 
-# HPF
-def HPF(x, fs):
-    fc = 1000
+def get_hpf_sos(fs, cutoff=1000):
+    cutoff = clamp_frequency(cutoff, 20, int(fs / 2) - 1)
     order = 4
+    wn = cutoff / (0.5 * fs)
+    return butter(order, wn, btype="high", output="sos")
+
+
+def get_bpf_sos(fs, lowcut=500, highcut=2400):
     nyq = 0.5 * fs
-    wn = fc / nyq
 
-    sos = butter(order, wn, btype="high", output="sos")
-    return sosfiltfilt(sos, x)
+    lowcut = clamp_frequency(lowcut, 20, int(fs / 2) - 2)
+    highcut = clamp_frequency(highcut, lowcut + 1, int(fs / 2) - 1)
 
-
-# BPF
-def BPF(x, fs):
-    lowcut = 500
-    highcut = 2400
     order = 4
-    nyq = 0.5 * fs
     low = lowcut / nyq
     high = highcut / nyq
+    return butter(order, [low, high], btype="band", output="sos")
 
-    sos = butter(order, [low, high], btype="band", output="sos")
+
+# -----------------------------
+# DSP Modes
+# -----------------------------
+def LPF(x, fs, cutoff=3000):
+    sos = get_lpf_sos(fs, cutoff=cutoff)
     return sosfiltfilt(sos, x)
 
 
-# NOTCH
+def HPF(x, fs, cutoff=1000):
+    sos = get_hpf_sos(fs, cutoff=cutoff)
+    return sosfiltfilt(sos, x)
+
+
+def BPF(x, fs, lowcut=500, highcut=2400):
+    sos = get_bpf_sos(fs, lowcut=lowcut, highcut=highcut)
+    return sosfiltfilt(sos, x)
+
+
 def NOTCH(x, fs):
     f0 = 60
     q = 30
@@ -56,7 +82,6 @@ def NOTCH(x, fs):
     return y, f0, q
 
 
-# 3-Band EQ
 def threeBandEQ(x, fs):
     low_gain = 3.0
     mid_gain = 0.3
@@ -78,16 +103,9 @@ def threeBandEQ(x, fs):
     return y
 
 
-# ------------ Compression Helpers ------------------
-
-def dbToLinear(db):
-    return 10 ** (db / 20)
-
-
-def linearToDb(x, floor=1e-12):
-    return 20.0 * np.log10(np.maximum(np.abs(x), floor))
-
-
+# -----------------------------
+# Compression
+# -----------------------------
 def envelopeFollower(signal_abs, sample_rate, attack_ms, release_ms):
     attack_coeff = np.exp(-1.0 / (sample_rate * attack_ms * 0.001))
     release_coeff = np.exp(-1.0 / (sample_rate * release_ms * 0.001))
@@ -159,32 +177,30 @@ def COMP(x, fs):
     return y
 
 
-# ------------ Utility Functions ------------------
-
-def normalizeAudio(x):
-    peak = np.max(np.abs(x))
-    if peak > 0:
-        x = x / peak
-    return x
-
-
-# ------------ Main Apply Filter Function ------------------
-
-def applyFilter(infile, outfile, mode, normalize=True):
+# -----------------------------
+# Main Apply Filter Function
+# -----------------------------
+def applyFilter(
+    infile,
+    outfile,
+    mode,
+    normalize=True,
+    low_cutoff=500,
+    high_cutoff=2400
+):
     x, fs = sf.read(infile, always_2d=False)
 
-    # Convert stereo to mono for now
     if x.ndim == 2:
         x = np.mean(x, axis=1)
 
     x = np.asarray(x, dtype=np.float64)
 
     if mode == "LPF":
-        y = LPF(x, fs)
+        y = LPF(x, fs, cutoff=high_cutoff)
     elif mode == "HPF":
-        y = HPF(x, fs)
+        y = HPF(x, fs, cutoff=low_cutoff)
     elif mode == "BPF":
-        y = BPF(x, fs)
+        y = BPF(x, fs, lowcut=low_cutoff, highcut=high_cutoff)
     elif mode == "EQ":
         y = threeBandEQ(x, fs)
     elif mode == "COMP":
@@ -199,8 +215,52 @@ def applyFilter(infile, outfile, mode, normalize=True):
     return outfile
 
 
-# ------------ Optional Plot Functions ------------------
+# -----------------------------
+# Bode Data
+# -----------------------------
+def get_eq_response(fs, worN=4096):
+    low_gain = 3.0
+    mid_gain = 0.3
+    high_gain = 0.2
 
+    low_fc = 100
+    high_fc = 5000
+    order = 4
+
+    sos_low = butter(order, low_fc / (0.5 * fs), btype="low", output="sos")
+    sos_mid = butter(order, [low_fc / (0.5 * fs), high_fc / (0.5 * fs)], btype="band", output="sos")
+    sos_high = butter(order, high_fc / (0.5 * fs), btype="high", output="sos")
+
+    w, h_low = sosfreqz(sos_low, worN=worN, fs=fs)
+    _, h_mid = sosfreqz(sos_mid, worN=worN, fs=fs)
+    _, h_high = sosfreqz(sos_high, worN=worN, fs=fs)
+
+    h_total = low_gain * h_low + mid_gain * h_mid + high_gain * h_high
+    return w, h_total
+
+
+def get_bode_data(mode, fs, low_cutoff=500, high_cutoff=2400, worN=4096):
+    if mode == "LPF":
+        sos = get_lpf_sos(fs, cutoff=high_cutoff)
+        w, h = sosfreqz(sos, worN=worN, fs=fs)
+    elif mode == "HPF":
+        sos = get_hpf_sos(fs, cutoff=low_cutoff)
+        w, h = sosfreqz(sos, worN=worN, fs=fs)
+    elif mode == "BPF":
+        sos = get_bpf_sos(fs, lowcut=low_cutoff, highcut=high_cutoff)
+        w, h = sosfreqz(sos, worN=worN, fs=fs)
+    elif mode == "EQ":
+        w, h = get_eq_response(fs, worN=worN)
+    else:
+        return None, None
+
+    mag_db = 20 * np.log10(np.maximum(np.abs(h), 1e-12))
+    return w, mag_db
+
+
+# -----------------------------
+# Optional Plot Helpers
+# -----------------------------
 def plotTime(x, y, fs, title="Time Domain", t0=0, t1=0.05):
     n = len(x)
     t = np.arange(n) / fs
@@ -222,19 +282,16 @@ def plotTime(x, y, fs, title="Time Domain", t0=0, t1=0.05):
 
 def plotBode(b, a, fs, title="Bode Plot"):
     w, h = freqz(b, a, worN=65536)
-
     freq = w * fs / (2 * np.pi)
     mag_db = 20 * np.log10(np.maximum(np.abs(h), 1e-12))
 
     plt.figure(figsize=(10, 5))
     plt.semilogx(freq, mag_db)
-
     plt.xlabel("Frequency (Hz)")
     plt.ylabel("Magnitude (dB)")
     plt.title(title)
     plt.grid(True, which="both")
     plt.xlim(10, fs / 2)
-
     plt.show()
 
 
