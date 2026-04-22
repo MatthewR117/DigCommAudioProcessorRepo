@@ -344,7 +344,7 @@ class UploadAudioPage(QWidget):
         
         self.live_audio_data = None
         self.live_fs = None # live sample rate
-        self.live_window_sec = 0.20 # show last 0.2 seconds
+        self.live_window_sec = 0.2 # show last 0.2 seconds
         self.live_line = None
         self.live_ax = None
         self.play_started = False
@@ -495,18 +495,27 @@ class UploadAudioPage(QWidget):
         self.figure.clear()
         
         self.live_ax = self.figure.add_subplot(111)
-        self.live_ax.set_title("Audio Waveform")
-        self.live_ax.set_xlabel("Time (seconds)")
-        self.live_ax.set_ylabel("Amplitude")
-        self.live_ax.set_xlim(0,self.live_window_sec)
-        self.live_ax.set_ylim(-1.0,1.0)
-        #self.live_ax.set_gid(True, alpha = 0.3)
+        self.live_ax.set_xticks([])
+        self.live_ax.set_yticks([])
+        #self.live_ax.set_title("Audio Waveform")
+        #self.live_ax.set_xlabel("Time (seconds)")
+        #self.live_ax.set_ylabel("Amplitude")
+        #self.live_ax.set_xlim(0,self.live_window_sec)
+        #self.live_ax.set_ylim(-1.0,1.0)
+        #self.live_ax.set_grid(True, alpha = 0.3)
         
         t = np.linspace(0, self.live_window_sec,1000)
         y = np.zeros_like(t)
         
-        # drawing line
-        self.live_line, = self.live_ax.plot(t,y,linewidth = 1.0)
+        # nice waveform dude
+        # no spine, floatin
+        for spine in self.live_ax.spines.values():
+            spine.set_visible(False)
+        
+        self.figure.set_facecolor("grey")
+        self.live_ax.set_facecolor("black")
+        
+        self.live_line, = self.live_ax.plot(t,y,linewidth = 1.5,color="red")
         self.figure.tight_layout()
         self.canvas.draw()
         
@@ -545,6 +554,14 @@ class UploadAudioPage(QWidget):
         if audio_to_play is None:
             QMessageBox.information(self, "Audio", "Please load or record an audio file first.")
             return
+        
+        # load audio samples
+        try:
+            # load samples for audio scrolling
+            self.live_audio_data, self.live_fs = self._load_audio_mono(Path(audio_to_play))
+        except Exception as e:
+            QMessageBox.warning(self, "Waveform error",f"Could not load waveform data:\n{e}")
+            return
 
         self.player.stop()
         url = QUrl.fromLocalFile(str(Path(audio_to_play).resolve()))
@@ -578,7 +595,7 @@ class UploadAudioPage(QWidget):
         pos = self.player.position()
         current_sample = int((pos / 1000.0) * self.live_fs)
         
-        window_samples = int(self.live_window_seconds * self.live_fs)
+        window_samples = int(self.live_window_sec * self.live_fs)
         start = max(0, current_sample - window_samples)
         end = current_sample
         
@@ -586,17 +603,21 @@ class UploadAudioPage(QWidget):
         
         if len(segment) < window_samples:
             padded = np.zeros(window_samples, dtype = np.float64)
-            padded[-len(segment):] = segment
+            if len(segment) > 0:
+                padded[-len(segment):] = segment
             segment = padded
         
-        t = np.linspace(0, self.live_window_seconds, window_samples, endpoint = False)
+        #t = np.linspace(0, self.live_window_sec, window_samples, endpoint = False)
+        t = np.linspace(start / self.live_fs, end / self.live_fs, window_samples)
         
         if self.live_line is not None:
-            self.live_line.set_data(t,segnent)
+            self.live_line.set_data(t,segment)
         
         if self.live_ax is not None:
-            self.live_ax.setxlim(0,self.live_window_seconds)
-            self.live_ax.setylim(-1.0, 1.0)
+            #self.live_ax.set_xlim(0,self.live_window_sec)
+            self.live_ax.set_xlim(t[0],t[-1])
+            self.live_ax.set_ylim(-1.0, 1.0)
+        
             
         if self.canvas is not None:
             self.canvas.draw_idle()
@@ -625,7 +646,11 @@ class UploadAudioPage(QWidget):
         if audio_path is None:
             QMessageBox.information(self, "Waveform", "Please select an audio file first.")
             return
-
+        
+        self.current_plot_mode = "waveform"
+        self.waveformInit()
+        self.status_label.setText("Status: hello chud")
+        """
         try:
             self.current_plot_mode = "waveform"
             self.plot_waveform(Path(audio_path))
@@ -633,6 +658,7 @@ class UploadAudioPage(QWidget):
         except Exception as e:
             self.status_label.setText("Status: Waveform failed.")
             QMessageBox.warning(self, "Waveform Error", str(e))
+        """
 
     # Clear audio function
     def clear_audio(self):
