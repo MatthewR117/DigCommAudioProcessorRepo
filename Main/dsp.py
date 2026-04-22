@@ -2,9 +2,11 @@
 # Holds all functions for digital filters:
 # Lowpass, Highpass, Bandpass, Notch, EQ
 # Created by Matthew Reyna
+
 from scipy import signal
 from scipy.signal import butter,iirnotch, filtfilt, sosfiltfilt
 from scipy.signal import freqz
+
 
 import soundfile as sf
 import sounddevice as sd
@@ -106,7 +108,83 @@ def threeBandEQ(x,fs):
     # combine gain and bands into one signal 
     y = lowGain * lowBand + midGain * midBand + highGain * highBand
     return y
+# ------------------------ Compressor Shi ------------------
+# Linear to Db function
+def linearToDb(x, floor=1e-12):
+    return 20.0 * np.log10(np.maximum(np.abs(x), floor))
 
+
+def envelopeFollower(signal_abs, sample_rate, attack_ms, release_ms):
+    attack_coeff = np.exp(-1.0 / (sample_rate * attack_ms * 0.001))
+    release_coeff = np.exp(-1.0 / (sample_rate * release_ms * 0.001))
+
+    env = np.zeros_like(signal_abs)
+    prev = 0.0
+
+    for i, sample in enumerate(signal_abs):
+        if sample > prev:
+            coeff = attack_coeff
+        else:
+            coeff = release_coeff
+
+        prev = coeff * prev + (1.0 - coeff) * sample
+        env[i] = prev
+
+    return env
+
+
+def compressChannel(
+    x,
+    sample_rate,
+    threshold_db=-24.0,
+    ratio=8.0,
+    attack_ms=3.0,
+    release_ms=100.0,
+    makeup_gain_db=2.0
+):
+    x = x.astype(np.float64)
+
+    env = envelopeFollower(
+        signal_abs=np.abs(x),
+        sample_rate=sample_rate,
+        attack_ms=attack_ms,
+        release_ms=release_ms
+    )
+
+    env_db = linearToDb(env)
+    gain_reduction_db = np.zeros_like(env_db)
+
+    over_threshold = env_db > threshold_db
+    gain_reduction_db[over_threshold] = (
+        threshold_db
+        + (env_db[over_threshold] - threshold_db) / ratio
+        - env_db[over_threshold]
+    )
+
+    total_gain_db = gain_reduction_db + makeup_gain_db
+    total_gain_linear = dbToLinear(total_gain_db)
+
+    return x * total_gain_linear
+
+
+def softLimitAudio(x, limit=0.70):
+    return limit * np.tanh(x / limit)
+
+# Compressor filter audio idk whatever ts is for 
+def COMP(x, fs):
+    y = compressChannel(
+        x=x,
+        sample_rate=fs,
+        threshold_db=-24.0,
+        ratio=8.0,
+        attack_ms=3.0,
+        release_ms=100.0,
+        makeup_gain_db=2.0
+    )
+    y = softLimitAudio(y, limit=0.70)
+    return y
+
+# ------------ end compressor -------------------
 # dB to Linear func
 def dbToLinear(db):
     return 10**(db/20)    
@@ -118,7 +196,7 @@ def normalizeAudio(x):
         x = x / peak
     return x
 
-# Apply filter function
+# ---------- !!! Apply filter function !!! ----------
 def applyFilter(infile, outfile, mode, normalize = True):
     x,fs = sf.read(infile, always_2d = False)
 
@@ -137,6 +215,8 @@ def applyFilter(infile, outfile, mode, normalize = True):
         y = BPF(x,fs)
     elif mode == "EQ":
         y = threeBandEQ(x,fs)
+    elif mode == "COMP":
+        y = COMP(x,fs)
     else:
         y = x 
     
@@ -214,3 +294,4 @@ def plotFFT_compare(x, y, fs):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+
