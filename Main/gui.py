@@ -336,6 +336,18 @@ class UploadAudioPage(QWidget):
         self.canvas = None
         self.figure = None
         self.current_plot_mode = "waveform"
+        
+        # Variables for live waveform
+        self.wave_timer = QTimer()
+        self.wave_timer.setInterval(30) # time interval updates every 30 ms
+        self.wave_timer.timeout.connect(self.updateWaveform)
+        
+        self.live_audio_data = None
+        self.live_fs = None # live sample rate
+        self.live_window_sec = 0.20 # show last 0.2 seconds
+        self.live_line = None
+        self.live_ax = None
+        self.play_started = False
 
         self.build_ui()
 
@@ -476,6 +488,28 @@ class UploadAudioPage(QWidget):
             return
 
         self.load_audio_file(file_path)
+        
+    # init waveform display page function
+    def waveformInit(self):
+        self._ensure_canvas()
+        self.figure.clear()
+        
+        self.live_ax = self.figure.add_subplot(111)
+        self.live_ax.set_title("Audio Waveform")
+        self.live_ax.set_xlabel("Time (seconds)")
+        self.live_ax.set_ylabel("Amplitude")
+        self.live_ax.set_xlim(0,self.live_window_sec)
+        self.live_ax.set_ylim(-1.0,1.0)
+        #self.live_ax.set_gid(True, alpha = 0.3)
+        
+        t = np.linspace(0, self.live_window_sec,1000)
+        y = np.zeros_like(t)
+        
+        # drawing line
+        self.live_line, = self.live_ax.plot(t,y,linewidth = 1.0)
+        self.figure.tight_layout()
+        self.canvas.draw()
+        
 
     # Load audio file function
     def load_audio_file(self, file_path: str):
@@ -487,18 +521,25 @@ class UploadAudioPage(QWidget):
         self.main_window.currFilterMode = None
 
         self.file_label.setText(f"Selected file: {audio_path.name}")
-        self.current_plot_mode = "fft"
-
+        # plot mode when audio file is init loaded
+        self.current_plot_mode = "waveform"
+        
+        self.waveformInit()
+        self.status_label.setText("Status: Audio loaded.")
+        
+        """
         try:
             self.plot_fft(audio_path)
             self.status_label.setText("Status: Audio loaded. FFT displayed.")
         except Exception as e:
             self.status_label.setText("Status: Audio loaded, but FFT failed.")
             QMessageBox.warning(self, "FFT Error", str(e))
+        """
 
     def get_active_audio_path(self):
         return self.main_window.procAudio or self.main_window.currAudio
-
+    
+    # Play audio function
     def play_audio(self):
         audio_to_play = self.get_active_audio_path()
         if audio_to_play is None:
@@ -508,17 +549,62 @@ class UploadAudioPage(QWidget):
         self.player.stop()
         url = QUrl.fromLocalFile(str(Path(audio_to_play).resolve()))
         self.player.setSource(url)
+        
+        # start init waveform scrolling
+        self.waveformInit()
         self.player.play()
-
+        self.wave_timer.start()
+        
+        
         self.status_label.setText(f"Status: Playing {Path(audio_to_play).stem}")
         self.file_label.setText(f"Selected file: {Path(audio_to_play).name}")
-
+    
+    # Stop audio function
     def stop_audio(self):
         self.player.stop()
+        self.wave_timer.stop()
+        
         if self.get_active_audio_path() is None:
             self.status_label.setText("Status: Waiting for audio file.")
         else:
             self.status_label.setText("Status: Playback stopped.")
+            
+    # Update audio waveform for "scrolling" effect
+    def updateWaveform(self):
+        if self.live_audio_data is None or self.live_fs is None:
+            return
+        
+        # QMediaPlayer position is in miliseconds
+        pos = self.player.position()
+        current_sample = int((pos / 1000.0) * self.live_fs)
+        
+        window_samples = int(self.live_window_seconds * self.live_fs)
+        start = max(0, current_sample - window_samples)
+        end = current_sample
+        
+        segment = self.live_audio_data[start:end]
+        
+        if len(segment) < window_samples:
+            padded = np.zeros(window_samples, dtype = np.float64)
+            padded[-len(segment):] = segment
+            segment = padded
+        
+        t = np.linspace(0, self.live_window_seconds, window_samples, endpoint = False)
+        
+        if self.live_line is not None:
+            self.live_line.set_data(t,segnent)
+        
+        if self.live_ax is not None:
+            self.live_ax.setxlim(0,self.live_window_seconds)
+            self.live_ax.setylim(-1.0, 1.0)
+            
+        if self.canvas is not None:
+            self.canvas.draw_idle()
+            
+        # stop timer when playback ends
+        if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState and pos > 0:
+            self.wave_timer.stop()
+        
 
     def show_fft(self):
         audio_path = self.get_active_audio_path()
@@ -552,14 +638,19 @@ class UploadAudioPage(QWidget):
     def clear_audio(self):
         self.main_window.deleteTemp()
         self.player.stop()
+        self.wave_timer.stop()
 
         self.main_window.currAudio = None
         self.main_window.procAudio = None
         self.main_window.currFilterMode = None
+        self.live_audio_data = None
+        self.live_fs = None
+        self.live_line = None
+        self.live_ax = None
 
         self.file_label.setText("Selected file: (none)")
         self.status_label.setText("Status: Waiting for audio file.")
-        self.current_plot_mode = "fft"
+        self.current_plot_mode = "waveform"
 
         if self.canvas is not None:
             self.canvas_container.removeWidget(self.canvas)
