@@ -274,7 +274,7 @@ def save_wav_file_dialog(parent: QWidget, title: str, default_name: str = "recor
     return ""
 
 # -----------------------------
-#   Upload Audio Page
+#  $$$$$$$$$$$$ Upload Audio Page $$$$$$$$$$$$$$$$$$$
 # -----------------------------
 class UploadAudioPage(QWidget):
     def __init__(self, parent: QMainWindow):
