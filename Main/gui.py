@@ -16,7 +16,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import time
-import spidev
+#import spidev # Commented out just so I can run stuff. - Caden C.
 
 from PyQt6.QtCore import Qt, QUrl, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -27,18 +27,21 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
-try: # I changed the single from/import line into a 'try' block (78). This helps with debugging while not connected to Pi.
+try:  # I changed the single from/import line into a 'try' block (78). This helps with debugging while not connected to Pi.
     from gpiozero import Button
-    GPIO_AVAILABLE = True # If GPIO ports are connected, jump to GPIO_AVAILABLE 'try' block later in program.
+
+    GPIO_AVAILABLE = True  # If GPIO ports are connected, jump to GPIO_AVAILABLE 'try' block later in program.
 except Exception:
     Button = None
-    GPIO_AVAILABLE = False # If GPIO ports aren't connected, jump to GPIO_AVAILABLE 'else' block.
+    GPIO_AVAILABLE = False  # If GPIO ports aren't connected, jump to GPIO_AVAILABLE 'else' block.
 
 from dsp import applyFilter
 
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
 #  Global variable to hold current date for file output
 date = datetime.datetime.now().strftime("%Y-%m-%d")
+
+
 # -----------------------------
 #  !!!!!!!!!!!!!!!!!!!!! MAIN RETARD MAIN !!!!!!!!!!!!!!!!
 # -----------------------------
@@ -48,9 +51,10 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Digital Audio Post Processor")      # Set the title of the main menu.
-        self.setFixedSize(1024, 600)                             # Match the 7" display resolution automatically.
-        self.setStyleSheet("background-color: rgb(150, 150, 150);") # Change the background color of the main menu (gray).
+        self.setWindowTitle("Digital Audio Post Processor")  # Set the title of the main menu.
+        self.setFixedSize(1024, 600)  # Match the 7" display resolution automatically.
+        self.setStyleSheet(
+            "background-color: rgb(150, 150, 150);")  # Change the background color of the main menu (gray).
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -69,15 +73,15 @@ class MainWindow(QMainWindow):
         self.procAudio = None  # Holds processed audio, filtered
         self.currFilterMode = None  # Holds current state of  filter selected
         self.tempAudio = None  # Holds temp filtered audio, get deleted lil bro
-        self.audioPos = None # Hold the timestamp of the current audio that is playing
+        self.audioPos = None  # Hold the timestamp of the current audio that is playing
         self.gpioFilterSignal.connect(self.handleGPIO)
         self.show_menu()
 
         # ----------- Filter GPIO Setup --------------------
         self.gpio_enabled = False
 
-        if GPIO_AVAILABLE: # I added this block to function a certain way. If the GPIO is available, the program will run
-            try:           # like normal. If not, it'll just skip the GPIO and open the GUI, allowing use of the test buttons.
+        if GPIO_AVAILABLE:  # I added this block to function a certain way. If the GPIO is available, the program will run
+            try:  # like normal. If not, it'll just skip the GPIO and open the GUI, allowing use of the test buttons.
                 # Top Buttons
                 self.lpfButton = Button(17, pull_up=True, bounce_time=0.2)
                 self.hpfButton = Button(27, pull_up=True, bounce_time=0.2)
@@ -103,19 +107,22 @@ class MainWindow(QMainWindow):
                 print("GPIO not available.")
         else:
             return
-        
+
     # Filter Button Press Function
     def handleGPIO(self, mode):
         if self.stack.currentWidget() is not self.upload_page:
             return
 
         if self.currAudio is None:
+            print("No audio file is loaded.")
             return
 
+        # This is to save the current position of audio before changing the filter.
+        current_pos = self.upload_page.player.position()
+
         try:
-            # save current audio position
-            audioPos = self.upload_page.player.position()
-            # hold the filtered audio in temp, unsaved
+            print(f"Applying {mode}...")
+
             tempOutFile = self.applyFilterToCurrAudio(mode)
 
             if tempOutFile is not None:
@@ -126,14 +133,17 @@ class MainWindow(QMainWindow):
                     self.upload_page.plot_waveform(Path(tempOutFile))
                 else:
                     self.upload_page.plot_fft(Path(tempOutFile))
-                # Play audio after filtering (maybe make it live rather than restart)
-                self.upload_page.play_audio(startPos = audioPos)
-            
-        except Exception as e:
-            QMessageBox.warning(self, "Processing Error", str(e))
-#-----------------------------------------------------------------------------------------------------------------------
 
-    # --------------------- Apply filter to current audio function -----------------
+                # Load the filtered audio without restarting.
+                self.upload_page.play_audio_at_position(current_pos)
+                print(f"{mode} applied.")
+
+        except Exception as e:
+            print(f"{mode} failed.") # Prints if the filter fails to apply.
+            QMessageBox.warning(self, "Processing Error", str(e))
+    # ------------------------------------------------------------------------------------------------------------------
+    # Apply filter to current audio function
+    #-------------------------------------------------------------------------------------------------------------------
     def applyFilterToCurrAudio(self, mode):
         if self.currAudio is None:
             return None
@@ -144,7 +154,7 @@ class MainWindow(QMainWindow):
         # Save file name for TEMP filtered audio
         output_path = Path(f"TEMP_{self.currAudio.stem}_{mode}_{date}.wav")
 
-        applyFilter(str(self.currAudio),str(output_path),mode,normalize=True)
+        applyFilter(str(self.currAudio), str(output_path), mode, normalize=True)
 
         self.tempAudio = output_path
         self.currFilterMode = mode
@@ -179,10 +189,9 @@ class MainWindow(QMainWindow):
 
     def show_live_audio(self):
         self.stack.setCurrentWidget(self.live_page)
-#-----------------------------------------------------------------------------------------------------------------------
-# This function is more debugging stuff. I'm not exactly sure if it'll affect the physical buttons somehow, so it may
-# just be safer to comment out this section as well as the "keyPressEvent" (326) section out for safety. Though if both
-# work, then it just saves time during debugging. I'm sure we can quickly test tomorrow!
+
+    # -----------------------------------------------------------------------------------------------------------------------
+    # This function is more debugging stuff.
     def toggleFilter(self, mode):
         if self.stack.currentWidget() is not self.upload_page:
             return
@@ -192,19 +201,23 @@ class MainWindow(QMainWindow):
 
         # If same filter is already active, turn it off
         if self.currFilterMode == mode and self.procAudio is not None:
+            current_pos = self.upload_page.player.position()
             self.deleteTemp()
+            print(f"{mode} turned off.") # Added this to recognize a turned off filter.
             self.upload_page.file_label.setText(f"Selected file: {Path(self.currAudio).name}")
 
             if self.upload_page.current_plot_mode == "waveform":
                 self.upload_page.waveformInit()
             else:
                 self.upload_page.plot_fft(Path(self.currAudio))
-            audioPos = self.upload_page.play_audio()
-            self.upload_page.play_audio(startPos = audioPos)
+            #audioPos = self.upload_page.play_audio()
+            self.upload_page.play_audio_at_position(current_pos) # (startPos=audioPos)
             return
 
         # Otherwise, turn the filter on
         self.handleGPIO(mode)
+
+
 # -----------------------------
 # Shared UI Helpers
 # -----------------------------
@@ -219,12 +232,14 @@ def make_title(text: str, pt: int = 32) -> QLabel:
     lbl.setStyleSheet("color: white;")
     return lbl
 
+
 def make_divider() -> QFrame:
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
     line.setFrameShadow(QFrame.Shadow.Sunken)
     line.setStyleSheet("background-color: rgb(200, 200, 200); height: 2px;")
     return line
+
 
 # This makes the 2 buttons on the front cover. Not their actions, but specifically the format. Size, color, etc.
 def make_big_button(text: str, bg_rgb: str, hover_rgb: str, pressed_rgb: str) -> QPushButton:
@@ -235,16 +250,19 @@ def make_big_button(text: str, bg_rgb: str, hover_rgb: str, pressed_rgb: str) ->
         QPushButton:pressed {{background-color: {pressed_rgb};}}""")
     return btn
 
-#-----------------------------------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------------------------------
 # The action buttons are the buttons that do "things" on the 'Upload Audio' menu. I altered the size of the buttons
 # to all fit reasonably side-by-side. Though this may change if it still looks scrunched on the 7" display.
 def make_action_button(text: str, normal_rgb: str, hover_rgb: str, pressed_rgb: str) -> QPushButton:
     btn = QPushButton(text)
-    btn.setFixedSize(120, 60) # The button size is based on: (x,y)
-    btn.setStyleSheet(f"""QPushButton {{font-size: 17px;padding: 8px 10px;border-radius: 12px;background-color: {normal_rgb};color: white;}}
+    btn.setFixedSize(120, 60)  # The button size is based on: (x,y)
+    btn.setStyleSheet(
+        f"""QPushButton {{font-size: 17px;padding: 8px 10px;border-radius: 12px;background-color: {normal_rgb};color: white;}}
         QPushButton:hover {{background-color: {hover_rgb};}}
         QPushButton:pressed {{background-color: {pressed_rgb};}}""")
     return btn
+
 
 # This obviously creates the back button, of which is fairly consistent throughout every menu.
 def make_back_button(page: QWidget) -> QPushButton:
@@ -253,8 +271,9 @@ def make_back_button(page: QWidget) -> QPushButton:
     btn.setStyleSheet("""QPushButton {font-size: 16px;padding: 8px 14px;border-radius: 12px;background-color: rgb(80, 80, 80);color: white;}
         QPushButton:hover {background-color: rgb(70, 70, 70);}
         QPushButton:pressed {background-color: rgb(50, 50, 50);}""")
-    btn.clicked.connect(page.go_back_to_menu) # Attaches button to this function which just returns to the main menu.
+    btn.clicked.connect(page.go_back_to_menu)  # Attaches button to this function which just returns to the main menu.
     return btn
+
 
 def open_audio_file_dialog(parent: QWidget, title: str) -> str:
     dialog = QFileDialog(parent, title)
@@ -265,6 +284,7 @@ def open_audio_file_dialog(parent: QWidget, title: str) -> str:
     if dialog.exec():
         return dialog.selectedFiles()[0]
     return ""
+
 
 def save_wav_file_dialog(parent: QWidget, title: str, default_name: str = "recording.wav") -> str:
     dialog = QFileDialog(parent, title)
@@ -278,6 +298,7 @@ def save_wav_file_dialog(parent: QWidget, title: str, default_name: str = "recor
     if dialog.exec():
         return dialog.selectedFiles()[0]
     return ""
+
 
 # -----------------------------
 #   $$$$$$$$$ Upload Audio Page $$$$$$$$$$
@@ -329,6 +350,39 @@ class UploadAudioPage(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Save Error", str(e))
 
+    # Function that allows the audio to play from its current position when altered.
+    def play_audio_at_position(self, position_ms):
+        audio_to_play = self.get_active_audio_path()
+        if audio_to_play is None: # If no audio is playing, throw an exception warning.
+            QMessageBox.warning(self, "Audio", "Please load or record an audio file.")
+            return
+
+        try:
+            # Reload waveform data for the "new" active file.
+            self.live_audio_data, self.live_fs = self.load_audio_mono(Path(audio_to_play))
+        except Exception as e: # If no waveform is loaded, throw another exception warning.
+            QMessageBox.warning(self, "Waveform Error", f"Could not load waveform data:\n{e}")
+            return
+
+        # Stop the player, create a variable and attach the new audio to it,
+        # then attach the source to that variable so it plays from there.
+        self.player.stop()
+        url = QUrl.fromLocalFile(str(Path(audio_to_play).resolve()))
+        self.player.setSource(url)
+
+        # Reset waveform
+        self.waveformInit()
+
+        # Start playing the new file.
+        self.player.play()
+
+        # Jump back to old playback location. Acts as a delay to give the QMediaPlayer time to function right.
+        QTimer.singleShot(1, lambda: self.player.setPosition(position_ms))
+
+        # Start the waveform.
+        self.wave_timer.start()
+        self.file_label.setText(f"Selected file: {Path(audio_to_play).name}")
+
     # Keyboard Handler - Useful for debugging capabilities. Supposed to function as physical "buttons" when not connected to rig.
     def keyPressEvent(self, event):
         try:
@@ -354,13 +408,17 @@ class UploadAudioPage(QWidget):
             elif event.key() == Qt.Key.Key_C:
                 print("Compression key pressed.")
                 self.main_window.toggleFilter("COMP")
+            #elif event.key() == Qt.Key.Key_N:          # Commenting this out for now because the notch filter isn't
+            #    print("Notch key pressed.")            # workable at the moment.
+            #    self.main_window.toggleFilter("NOTCH")
             else:
                 super().keyPressEvent(event)
 
         except Exception as e:
             print("keyPressEvent error:", e)
-#-----------------------------------------------------------------------------------------------------------------------
-# This is where the GUI magic happens. All the buttons and widgets and labels and stuff are thrown onto the interface.
+
+    # -----------------------------------------------------------------------------------------------------------------------
+    # This is where the GUI magic happens. All the buttons and widgets and labels and stuff are thrown onto the interface.
     def build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 20, 18, 18)
@@ -384,14 +442,15 @@ class UploadAudioPage(QWidget):
 
         self.placeholder_label = QLabel("FFT or waveform will appear here after an audio file is selected.")
         self.placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder_label.setStyleSheet("background-color: white;""color: black;""font-size: 18px;""padding: 20px;""min-height: 240px;")
+        self.placeholder_label.setStyleSheet(
+            "background-color: white;""color: black;""font-size: 18px;""padding: 20px;""min-height: 240px;")
         self.canvas_container.addWidget(self.placeholder_label)
         plot_shell_layout.addLayout(self.canvas_container)
 
         layout.addWidget(plot_shell, stretch=1)
 
-        button_row = QHBoxLayout() # Creates the interface for the action buttons. They are in a horizontal orientation.
-        button_row.addStretch()    # Adds a stretch to the left of the button_row layout.
+        button_row = QHBoxLayout()  # Creates the interface for the action buttons. They are in a horizontal orientation.
+        button_row.addStretch()  # Adds a stretch to the left of the button_row layout.
 
         # These are the action buttons in question. They are all very similar except for their colors.
         choose_btn = make_action_button("Choose File", "rgb(30,144,255)", "rgb(20,120,220)", "rgb(15,100,200)")
@@ -419,10 +478,10 @@ class UploadAudioPage(QWidget):
         button_row.addWidget(wave_btn)
         button_row.addWidget(clear_btn)
         button_row.addWidget(save_btn)
-        button_row.addStretch() # Adds a stretch to the right of the buttons.
+        button_row.addStretch()  # Adds a stretch to the right of the buttons.
 
-        layout.addLayout(button_row) # Creates the row of buttons.
-#-----------------------------------------------------------------------------
+        layout.addLayout(button_row)  # Creates the row of buttons.
+        # -----------------------------------------------------------------------------
         # This code is purely for debugging filter buttons. When unused, just comment it out.
         # The start of where I genuinely try learning lol
         # Adds kind of a margin spacer BEFORE the button.
@@ -453,12 +512,12 @@ class UploadAudioPage(QWidget):
 
         layout.addLayout(debug_row) # Adds the new layout to the GUI.
         '''
-#-----------------------------------------------------------------------------------------------------------------------
-        bottom = QHBoxLayout()                   # Creates a horizontal interface named "bottom."
-        bottom.addStretch()                      # Adds a stretch to the left of the back button.
-        bottom.addWidget(make_back_button(self)) # Adds the back button to the interface.
-        bottom.addStretch()                      # Adds a stretch to the right of the back button.
-        layout.addLayout(bottom)                 # Creates the interface and adds it to the GUI.
+        # -----------------------------------------------------------------------------------------------------------------------
+        bottom = QHBoxLayout()  # Creates a horizontal interface named "bottom."
+        bottom.addStretch()  # Adds a stretch to the left of the back button.
+        bottom.addWidget(make_back_button(self))  # Adds the back button to the interface.
+        bottom.addStretch()  # Adds a stretch to the right of the back button.
+        layout.addLayout(bottom)  # Creates the interface and adds it to the GUI.
 
     def on_page_shown(self):
         if self.main_window.currAudio is None and self.main_window.procAudio is None:
@@ -510,7 +569,7 @@ class UploadAudioPage(QWidget):
         return self.main_window.procAudio or self.main_window.currAudio
 
     # Play audio function
-    def play_audio(self, startPos = None):
+    def play_audio(self, startPos=None):
         audio_to_play = self.get_active_audio_path()
         if audio_to_play is None:
             QMessageBox.information(self, "Audio", "Please load or record an audio file first.")
@@ -529,11 +588,11 @@ class UploadAudioPage(QWidget):
 
         # start init waveform scrolling
         self.waveformInit()
-        
+
         # check if the audio is not at the beginning
-        #if startPos is not None:
+        # if startPos is not None:
         self.player.setPosition(startPos)
-            
+
         self.player.play()
         self.wave_timer.start()
 
@@ -708,6 +767,8 @@ class UploadAudioPage(QWidget):
     def go_back_to_menu(self):
         self.player.stop()
         self.main_window.show_menu()
+
+
 # -----------------------------
 # Record Audio Page
 # -----------------------------
@@ -731,7 +792,8 @@ class RecordAudioPage(QWidget):
 
         layout.addWidget(make_title("Record Audio", pt=28))
 
-        self.info_label = QLabel("Use Start to record from the microphone. When Stop is pressed, you will choose a .wav filename to save.")
+        self.info_label = QLabel(
+            "Use Start to record from the microphone. When Stop is pressed, you will choose a .wav filename to save.")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.info_label.setWordWrap(True)
         self.info_label.setStyleSheet("font-size: 16px; color: white; padding: 6px;")
@@ -748,12 +810,12 @@ class RecordAudioPage(QWidget):
 
         # Aligns the vertical buttons to the center.
         row.addWidget(start_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        row.addSpacing(20) # Adds slight spacing between the buttons.
+        row.addSpacing(20)  # Adds slight spacing between the buttons.
         row.addWidget(stop_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         row.addStretch()
 
-        start_btn.clicked.connect(self.start_recording) # Whenever the button is clicked, jump to function.
-        stop_btn.clicked.connect(self.stop_recording)   # '                                               '
+        start_btn.clicked.connect(self.start_recording)  # Whenever the button is clicked, jump to function.
+        stop_btn.clicked.connect(self.stop_recording)  # '                                               '
 
         layout.addLayout(row)
 
@@ -821,7 +883,8 @@ class RecordAudioPage(QWidget):
             self.main_window.procAudio = None
             self.main_window.currFilterMode = None
 
-            QMessageBox.information(self,"Recording Saved",f"Recording saved as:\n{saved_name}\n\nYou can now open it from the Upload Audio page.")
+            QMessageBox.information(self, "Recording Saved",
+                                    f"Recording saved as:\n{saved_name}\n\nYou can now open it from the Upload Audio page.")
         except Exception as e:
             QMessageBox.warning(self, "Save Error", f"Could not save recording:\n{e}")
 
@@ -836,12 +899,16 @@ class RecordAudioPage(QWidget):
             self.stream = None
 
         self.main_window.show_menu()
-#-----------------------------------------------------------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------------------------------------------------------
 # Setup for the live audio page. The purpose it to be able to record audio in real-time with a connected microphone.
 class LiveAudioPage(QWidget):
     def __init__(self, parent: QMainWindow):
         super().__init__(parent)
         self.main_window = parent
+
+
 # -----------------------------
 # Menu Page
 # -----------------------------
@@ -852,22 +919,22 @@ class MenuPage(QWidget):
         self.build_ui()
 
     def build_ui(self):
-        layout = QVBoxLayout(self) # Create a vertical layout.
+        layout = QVBoxLayout(self)  # Create a vertical layout.
         layout.setContentsMargins(20, 40, 20, 20)
         layout.setSpacing(0)
 
-        layout.addWidget(make_title("DIGITAL AUDIO", pt=34))     # I changed the title to be two rows just so it
-        layout.addWidget(make_title("POST PROCESSOR", pt = 34))  # looks more symmetrically appealing.
-        layout.addSpacing(20)                                         # Adds some space between the title and line.
-        layout.addWidget(make_divider())                              # Added a divider line for more depth.
+        layout.addWidget(make_title("DIGITAL AUDIO", pt=34))  # I changed the title to be two rows just so it
+        layout.addWidget(make_title("POST PROCESSOR", pt=34))  # looks more symmetrically appealing.
+        layout.addSpacing(20)  # Adds some space between the title and line.
+        layout.addWidget(make_divider())  # Added a divider line for more depth.
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(24)
         grid.setVerticalSpacing(20)
 
         # These are the three primary buttons on the main menu. I turned them into a vertical format rather than horizontal.
-        self.btn_upload = make_big_button("Upload Audio","rgb(30,144,255)","rgb(20,120,220)","rgb(15,100,200)")
-        self.btn_record = make_big_button("Record Audio","rgb(255,165,0)","rgb(230,140,0)","rgb(200,120,0)")
+        self.btn_upload = make_big_button("Upload Audio", "rgb(30,144,255)", "rgb(20,120,220)", "rgb(15,100,200)")
+        self.btn_record = make_big_button("Record Audio", "rgb(255,165,0)", "rgb(230,140,0)", "rgb(200,120,0)")
         self.btn_live = make_big_button("Live Audio", "rgb(255,0,0)", "rgb(165, 42, 42", "rgb(145,56,49)")
 
         grid.addWidget(self.btn_upload, 0, 0, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -886,7 +953,7 @@ class MenuPage(QWidget):
         self.btn_upload.clicked.connect(self.main_window.show_upload_audio)
         self.btn_record.clicked.connect(self.main_window.show_record_audio)
         self.btn_live.clicked.connect(self.main_window.show_live_audio)
-        
+
 
 # -----------------------------
 # Entry Point
