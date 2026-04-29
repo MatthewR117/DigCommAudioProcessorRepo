@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QFileDialog, QMessageBox,
-    QFrame, QGridLayout
+    QFrame, QGridLayout, QComboBox
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -329,6 +329,7 @@ class UploadAudioPage(QWidget):
         self.live_line = None
         self.live_ax = None
         self.play_started = False
+        self.file_dialog_open = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.build_ui()
 
@@ -377,7 +378,7 @@ class UploadAudioPage(QWidget):
         self.player.play()
 
         # Jump back to old playback location. Acts as a delay to give the QMediaPlayer time to function right.
-        QTimer.singleShot(1, lambda: self.player.setPosition(position_ms))
+        QTimer.singleShot(10, lambda: self.player.setPosition(position_ms))
 
         # Start the waveform.
         self.wave_timer.start()
@@ -424,7 +425,32 @@ class UploadAudioPage(QWidget):
         layout.setContentsMargins(18, 20, 18, 18)
         layout.setSpacing(10)
 
-        layout.addWidget(make_title("Upload Audio", pt=12))
+        title_row = QHBoxLayout()
+
+        left_spacer = QWidget()
+        left_spacer.setFixedWidth(180) # The same width as the dropdown tab.
+
+        self.title_label = make_title("UPLOAD AUDIO", 12)
+
+        # This box is for the dropdown selection creation. It'll contain Waveform, FFT, Bode, etc.
+        self.plot_select = QComboBox()
+        self.plot_select.addItem("Choose File")
+        self.plot_select.addItem("Waveform")
+        self.plot_select.addItem("FFT")
+        self.plot_select.setFixedSize(180, 50)
+        self.plot_select.setStyleSheet("""QComboBox{font-size: 17px; padding: 6px; border-raidus: 10px;
+                background-color: rgb(128,128,128); color: white;}""")
+        self.plot_select.setCurrentText("Waveform")
+        self.plot_select.activated[int].connect(self.change_plot_type)
+
+        # Adds the dropdown box to the UI.
+        title_row.addWidget(left_spacer)
+        title_row.addStretch()
+        title_row.addWidget(self.title_label)
+        title_row.addStretch()
+        title_row.addWidget(self.plot_select)
+
+        layout.addLayout(title_row)
 
         self.file_label = QLabel("Selected file: (none)")
         self.file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -462,25 +488,24 @@ class UploadAudioPage(QWidget):
         save_btn = make_action_button("Save Audio", "rgb(255,140,0)", "rgb(230,120,0)", "rgb(200,100,0)")
 
         # When the buttons are clicked (or in our case, tapped), they will jump to different functions that do things.
-        choose_btn.clicked.connect(self.prompt_for_audio_file)
         play_btn.clicked.connect(self.play_audio)
         stop_btn.clicked.connect(self.stop_audio)
-        fft_btn.clicked.connect(self.show_fft)
-        wave_btn.clicked.connect(self.show_waveform)
         clear_btn.clicked.connect(self.clear_audio)
         save_btn.clicked.connect(self.saveAudio)
 
+        # When the dropdown selection is clicked, it'll do things.
+        self.plot_select.currentTextChanged.connect(self.change_plot_type)
+
         # This simply adds the buttons to the button_row interface.
-        button_row.addWidget(choose_btn)
         button_row.addWidget(play_btn)
         button_row.addWidget(stop_btn)
-        button_row.addWidget(fft_btn)
-        button_row.addWidget(wave_btn)
         button_row.addWidget(clear_btn)
         button_row.addWidget(save_btn)
+        button_row.addWidget(make_back_button(self))
         button_row.addStretch()  # Adds a stretch to the right of the buttons.
 
-        layout.addLayout(button_row)  # Creates the row of buttons.
+        # Creates the row of buttons.
+        layout.addLayout(button_row)
         # -----------------------------------------------------------------------------
         # This code is purely for debugging filter buttons. When unused, just comment it out.
         # The start of where I genuinely try learning lol
@@ -515,17 +540,53 @@ class UploadAudioPage(QWidget):
         # -----------------------------------------------------------------------------------------------------------------------
         bottom = QHBoxLayout()  # Creates a horizontal interface named "bottom."
         bottom.addStretch()  # Adds a stretch to the left of the back button.
-        bottom.addWidget(make_back_button(self))  # Adds the back button to the interface.
+        #bottom.addWidget(make_back_button(self))  # Adds the back button to the interface.
         bottom.addStretch()  # Adds a stretch to the right of the back button.
         layout.addLayout(bottom)  # Creates the interface and adds it to the GUI.
 
+    # This is for the dropdown button feature.
+    def change_plot_type(self, index):
+        try:
+            plot_type = self.plot_select.itemText(index)
+            print("Dropdown selected:", plot_type)
+
+            if plot_type == "Choose File":
+                self.prompt_for_audio_file()
+
+                # Reset dropdown box after the file dialog closes.
+                self.plot_select.blockSignals(True)
+                self.plot_select.setCurrentText("Waveform")
+                self.plot_select.blockSignals(False)
+                return
+
+            audio_path = self.get_active_audio_path()
+            if audio_path is None:
+                QMessageBox.information(self, "Audio", "Please load an audio file first.")
+                return
+
+            if plot_type == "Waveform":
+                self.show_waveform()
+            elif plot_type == "FFT":
+                self.show_fft()
+
+        except Exception as e:
+            print("Dropdown error:", e)
+
     def on_page_shown(self):
-        if self.main_window.currAudio is None and self.main_window.procAudio is None:
-            QTimer.singleShot(150, self.prompt_for_audio_file)
+        pass # Ignores the automatic prompting of choosing a file.
 
     # This function is CRUCIAL. Without it, no audio will upload to the GUI, and it will crash if you even try.
     def prompt_for_audio_file(self):
+        if self.file_dialog_open:
+            return
+
+        self.file_dialog_open = True
         file_path = open_audio_file_dialog(self, "Select Audio File")
+        self.file_dialog_open = False
+
+        if not file_path:
+            return
+
         self.load_audio_file(file_path)
 
     # init waveform display page function
@@ -645,7 +706,6 @@ class UploadAudioPage(QWidget):
     def show_fft(self):
         audio_path = self.get_active_audio_path()
         if audio_path is None:
-            QMessageBox.information(self, "FFT", "Please select an audio file first.")
             return
 
         try:
@@ -657,7 +717,6 @@ class UploadAudioPage(QWidget):
     def show_waveform(self):
         audio_path = self.get_active_audio_path()
         if audio_path is None:
-            QMessageBox.information(self, "Waveform", "Please select an audio file first.")
             return
 
         self.current_plot_mode = "waveform"
