@@ -23,9 +23,11 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QFileDialog, QMessageBox,
-    QFrame, QGridLayout, QComboBox
+    QFrame, QGridLayout, QComboBox, QListWidget,
+    QListWidgetItem
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from fontTools.merge import layout
 
 try:  # I changed the single from/import line into a 'try' block (78). This helps with debugging while not connected to Pi.
     from gpiozero import Button
@@ -59,13 +61,17 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
+        # This is where the different pages are instantiated.
         self.menu_page = MenuPage(parent=self)
         self.upload_page = UploadAudioPage(parent=self)
         self.record_page = RecordAudioPage(parent=self)
+        self.browser_page = AudioBrowserPage(parent=self)
+        #self.live_page = LiveAudioPage(parent=self) # Potentially if we have time.
 
         self.stack.addWidget(self.menu_page)
         self.stack.addWidget(self.upload_page)
         self.stack.addWidget(self.record_page)
+        self.stack.addWidget(self.browser_page)
 
         # ---- Shared Variables ----
         self.currAudio = None  # Holds the current audio file, unfiltered
@@ -187,8 +193,12 @@ class MainWindow(QMainWindow):
     def show_record_audio(self):
         self.stack.setCurrentWidget(self.record_page)
 
-    def show_live_audio(self):
-        self.stack.setCurrentWidget(self.live_page)
+    #def show_live_audio(self):                      # This is also for later.
+    #    self.stack.setCurrentWidget(self.live_page)
+
+    def show_audio_browser(self):
+        self.browser_page.load_files()
+        self.stack.setCurrentWidget(self.browser_page)
 
     # -----------------------------------------------------------------------------------------------------------------------
     # This function is more debugging stuff.
@@ -299,7 +309,111 @@ def save_wav_file_dialog(parent: QWidget, title: str, default_name: str = "recor
         return dialog.selectedFiles()[0]
     return ""
 
+#-----------------------------------------------------------------------------------------------------------------------
+# Audio Browser Page - Allows the user to scroll through an "in-GUI" list of audio files.
+#-----------------------------------------------------------------------------------------------------------------------
+class AudioBrowserPage(QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.main_window = parent
+        self.current_directory = Path.home()
+        self.audio_exts = {".wav", ".mp3"}
 
+        self.build_ui()
+        self.load_files()
+
+    def build_ui(self):
+        # Creates a vertical layout.
+        layout = QVBoxLayout(self)
+
+        # Creates the title of the menu and adds it into the layout.
+        title = make_title("Audio Browser", pt=18)
+        layout.addWidget(title)
+
+        # Gives specific attributes to the widget itself.
+        self.path_label = QLabel("")
+        self.path_label.setStyleSheet("color: white; font-size: 14px;")
+        layout.addWidget(self.path_label)
+
+        # Creates a list widget, allowing several files to be shown on a list.
+        self.file_list = QListWidget()
+        self.file_list.setStyleSheet("""QListWidget{background-color: white; color: black;
+        font-size: 16px; border radius: 10px; padding: 5px;}
+        QListWidget::item{padding: 8px}
+        QListWidget::item:selected{background-color: rgb(30,144,255); color: white;}""")
+        self.file_list.itemDoubleClicked.connect(self.open_selected_item)
+        layout.addWidget(self.file_list, stretch = 1)
+
+        # Creates a horizontal row layout.
+        button_row = QHBoxLayout()
+
+        # Creates action buttons for this layout.
+        up_btn = make_action_button("Up", "rgb(90,90,90)", "rgb(75,75,75)", "rgb(60,60,60)")
+        open_btn = make_action_button("Open", "rgb(30,144,255)", "rgb(20,120,220)", "rgb(15,100,200)")
+        back_btn = make_back_button(self)
+
+        # Adds actions for when the buttons are clicked.
+        up_btn.clicked.connect(self.go_up)
+        open_btn.clicked.connect(self.open_selected_item)
+
+        # Adds the buttons to the widget.
+        button_row.addWidget(up_btn)
+        button_row.addWidget(open_btn)
+        button_row.addWidget(back_btn)
+
+        # Creates the layout.
+        layout.addLayout(button_row)
+
+    # Load up the files.
+    def load_files(self):
+        self.file_list.clear()
+        self.path_label.setText(f"Folder: {self.current_directory}")
+
+        try:
+            entries = sorted(self.current_directory.iterdir(),key=lambda p: (p.is_file(), p.name.lower()))
+            for entry in entries:
+                if entry.is_dir():
+                    item = QListWidgetItem(f"[Folder] {entry.name}")
+                    item.setData(Qt.ItemDataRole.UserRole, str(entry))
+                    item.setData(Qt.ItemDataRole.UserRole + 1, "dir")
+                    self.file_list.addItem(item)
+
+                elif entry.suffix.lower() in self.audio_exts:
+                    item = QListWidgetItem(entry.name)
+                    item.setData(Qt.ItemDataRole.UserRole, str(entry))
+                    item.setData(Qt.ItemDataRole.UserRole + 1, "file")
+                    self.file_list.addItem(item)
+
+        # Throws an exception if the browser doesn't open up.
+        except Exception as e:
+            QMessageBox.warning(self, "Browser Error", str(e))
+
+    # Opens the selected file to be used in the menu.
+    def open_selected_item(self):
+        item = self.file_list.currentItem()
+        if item is None:
+            return
+
+        path = Path(item.data(Qt.ItemDataRole.UserRole))
+        item_type = item.data(Qt.ItemDataRole.UserRole + 1)
+
+        if item_type == "dir":
+            self.current_directory = path
+            self.load_files()
+        else:
+            self.main_window.upload_page.load_audio_file(str(path))
+            self.main_window.show_upload_audio()
+    
+    # Goes "up" to previous tab. Used for if you go into any folders and want to back out to an earlier section.
+    def go_up(self):
+        parent = self.current_directory.parent
+        if parent != self.current_directory:
+            self.current_directory = parent
+            self.load_files()
+
+    # Jumps back to the main "upload audio" page.
+    def go_back_to_menu(self):
+        self.main_window.show_upload_audio()
 # -----------------------------
 #   $$$$$$$$$ Upload Audio Page $$$$$$$$$$
 # -----------------------------
@@ -480,7 +594,7 @@ class UploadAudioPage(QWidget):
         # These are the action buttons in question. They are all very similar except for their colors.
         play_btn = make_action_button("Play", "rgb(34,139,34)", "rgb(24,110,24)", "rgb(14,90,14)")
         stop_btn = make_action_button("Stop", "rgb(200,0,0)", "rgb(170,0,0)", "rgb(140,0,0)")
-        notch_btn = make_action_button("Notch", "rgb(255,0,0)", "rgb(255,0,0)", "rgb(0,0,255)")
+        notch_btn = make_action_button("Notch", "rgb(17,17,232)", "rgb(17,17,202)", "rgb(8,8,138)")
         clear_btn = make_action_button("Clear", "rgb(180,180,180)", "rgb(160,160,160)", "rgb(130,130,130)")
         save_btn = make_action_button("Save Audio", "rgb(255,140,0)", "rgb(230,120,0)", "rgb(200,100,0)")
 
@@ -549,7 +663,7 @@ class UploadAudioPage(QWidget):
             print("Dropdown selected:", plot_type)
 
             if plot_type == "Choose File":
-                self.prompt_for_audio_file()
+                self.main_window.show_audio_browser()
 
                 # Reset dropdown box after the file dialog closes.
                 self.plot_select.blockSignals(True)
@@ -1013,7 +1127,7 @@ class MenuPage(QWidget):
 
         self.btn_upload.clicked.connect(self.main_window.show_upload_audio)
         self.btn_record.clicked.connect(self.main_window.show_record_audio)
-        self.btn_live.clicked.connect(self.main_window.show_live_audio)
+        #self.btn_live.clicked.connect(self.main_window.show_live_audio)
 
 
 # -----------------------------
