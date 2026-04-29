@@ -1,3 +1,4 @@
+# cadenGUI
 # GUI + DSP | 4/20/2026
 # Current Features:
 # - Main 3 filters, EQ, Compressors
@@ -14,6 +15,8 @@ import shutil
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
+import time
+import spidev
 
 from PyQt6.QtCore import Qt, QUrl, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -47,7 +50,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Digital Audio Post Processor")      # Set the title of the main menu.
         self.setFixedSize(1024, 600)                             # Match the 7" display resolution automatically.
-        self.setStyleSheet("background-color: rgb(70, 70, 70);") # Change the background color of the main menu (gray).
+        self.setStyleSheet("background-color: rgb(150, 150, 150);") # Change the background color of the main menu (gray).
 
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
@@ -66,7 +69,7 @@ class MainWindow(QMainWindow):
         self.procAudio = None  # Holds processed audio, filtered
         self.currFilterMode = None  # Holds current state of  filter selected
         self.tempAudio = None  # Holds temp filtered audio, get deleted lil bro
-
+        self.audioPos = None # Hold the timestamp of the current audio that is playing
         self.gpioFilterSignal.connect(self.handleGPIO)
         self.show_menu()
 
@@ -100,6 +103,7 @@ class MainWindow(QMainWindow):
                 print("GPIO not available.")
         else:
             return
+        
     # Filter Button Press Function
     def handleGPIO(self, mode):
         if self.stack.currentWidget() is not self.upload_page:
@@ -109,6 +113,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            # save current audio position
+            audioPos = self.upload_page.player.position()
             # hold the filtered audio in temp, unsaved
             tempOutFile = self.applyFilterToCurrAudio(mode)
 
@@ -121,8 +127,8 @@ class MainWindow(QMainWindow):
                 else:
                     self.upload_page.plot_fft(Path(tempOutFile))
                 # Play audio after filtering (maybe make it live rather than restart)
-                self.upload_page.play_audio()
-
+                self.upload_page.play_audio(startPos = audioPos)
+            
         except Exception as e:
             QMessageBox.warning(self, "Processing Error", str(e))
 #-----------------------------------------------------------------------------------------------------------------------
@@ -193,8 +199,8 @@ class MainWindow(QMainWindow):
                 self.upload_page.waveformInit()
             else:
                 self.upload_page.plot_fft(Path(self.currAudio))
-
-            self.upload_page.play_audio()
+            audioPos = self.upload_page.play_audio()
+            self.upload_page.play_audio(startPos = audioPos)
             return
 
         # Otherwise, turn the filter on
@@ -274,7 +280,7 @@ def save_wav_file_dialog(parent: QWidget, title: str, default_name: str = "recor
     return ""
 
 # -----------------------------
-#  $$$$$$$$$$$$ Upload Audio Page $$$$$$$$$$$$$$$$$$$
+#   $$$$$$$$$ Upload Audio Page $$$$$$$$$$
 # -----------------------------
 class UploadAudioPage(QWidget):
     def __init__(self, parent: QMainWindow):
@@ -504,7 +510,7 @@ class UploadAudioPage(QWidget):
         return self.main_window.procAudio or self.main_window.currAudio
 
     # Play audio function
-    def play_audio(self):
+    def play_audio(self, startPos = None):
         audio_to_play = self.get_active_audio_path()
         if audio_to_play is None:
             QMessageBox.information(self, "Audio", "Please load or record an audio file first.")
@@ -523,6 +529,11 @@ class UploadAudioPage(QWidget):
 
         # start init waveform scrolling
         self.waveformInit()
+        
+        # check if the audio is not at the beginning
+        #if startPos is not None:
+        self.player.setPosition(startPos)
+            
         self.player.play()
         self.wave_timer.start()
 
@@ -875,6 +886,8 @@ class MenuPage(QWidget):
         self.btn_upload.clicked.connect(self.main_window.show_upload_audio)
         self.btn_record.clicked.connect(self.main_window.show_record_audio)
         self.btn_live.clicked.connect(self.main_window.show_live_audio)
+        
+
 # -----------------------------
 # Entry Point
 # -----------------------------
@@ -887,5 +900,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
