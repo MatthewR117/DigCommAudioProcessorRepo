@@ -1,9 +1,9 @@
-# cadenGUI
-# GUI + DSP | 4/20/2026
+# MainGUI
+# GUI + DSP | 4/29/2026
 # Current Features:
-# - Main 3 filters, EQ, Compressors
-# - Temp output and save output
-# - Scrolling Audio Waveform
+# - Low-pass, High-pass, Band-pass, EQ, compress, and Notch filters.
+# - Tempoary output and save output.
+# - Scrolling Audio Waveform and FFT display.
 
 # Created by Matthew Reyna and Caden Craddock
 
