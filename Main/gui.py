@@ -409,9 +409,9 @@ class UploadAudioPage(QWidget):
             elif event.key() == Qt.Key.Key_C:
                 print("Compression key pressed.")
                 self.main_window.toggleFilter("COMP")
-            #elif event.key() == Qt.Key.Key_N:          # Commenting this out for now because the notch filter isn't
-            #    print("Notch key pressed.")            # workable at the moment.
-            #    self.main_window.toggleFilter("NOTCH")
+            elif event.key() == Qt.Key.Key_N:          # Commenting this out for now because the notch filter isn't
+                print("Notch key pressed.")            # workable at the moment.
+                self.main_window.toggleFilter("NOTCH")
             else:
                 super().keyPressEvent(event)
 
@@ -440,7 +440,6 @@ class UploadAudioPage(QWidget):
         self.plot_select.setFixedSize(180, 50)
         self.plot_select.setStyleSheet("""QComboBox{font-size: 17px; padding: 6px; border-raidus: 10px;
                 background-color: rgb(128,128,128); color: white;}""")
-        self.plot_select.setCurrentText("Waveform")
         self.plot_select.activated[int].connect(self.change_plot_type)
 
         # Adds the dropdown box to the UI.
@@ -479,17 +478,16 @@ class UploadAudioPage(QWidget):
         button_row.addStretch()  # Adds a stretch to the left of the button_row layout.
 
         # These are the action buttons in question. They are all very similar except for their colors.
-        choose_btn = make_action_button("Choose File", "rgb(30,144,255)", "rgb(20,120,220)", "rgb(15,100,200)")
         play_btn = make_action_button("Play", "rgb(34,139,34)", "rgb(24,110,24)", "rgb(14,90,14)")
         stop_btn = make_action_button("Stop", "rgb(200,0,0)", "rgb(170,0,0)", "rgb(140,0,0)")
-        fft_btn = make_action_button("Show FFT", "rgb(128,128,128)", "rgb(110,110,110)", "rgb(90,90,90)")
-        wave_btn = make_action_button("Waveform", "rgb(128,128,128)", "rgb(110,110,110)", "rgb(90,90,90)")
+        notch_btn = make_action_button("Notch", "rgb(255,0,0)", "rgb(255,0,0)", "rgb(0,0,255)")
         clear_btn = make_action_button("Clear", "rgb(180,180,180)", "rgb(160,160,160)", "rgb(130,130,130)")
         save_btn = make_action_button("Save Audio", "rgb(255,140,0)", "rgb(230,120,0)", "rgb(200,100,0)")
 
         # When the buttons are clicked (or in our case, tapped), they will jump to different functions that do things.
         play_btn.clicked.connect(self.play_audio)
         stop_btn.clicked.connect(self.stop_audio)
+        notch_btn.clicked.connect(self.notch_audio)
         clear_btn.clicked.connect(self.clear_audio)
         save_btn.clicked.connect(self.saveAudio)
 
@@ -499,6 +497,7 @@ class UploadAudioPage(QWidget):
         # This simply adds the buttons to the button_row interface.
         button_row.addWidget(play_btn)
         button_row.addWidget(stop_btn)
+        button_row.addWidget(notch_btn)
         button_row.addWidget(clear_btn)
         button_row.addWidget(save_btn)
         button_row.addWidget(make_back_button(self))
@@ -540,7 +539,6 @@ class UploadAudioPage(QWidget):
         # -----------------------------------------------------------------------------------------------------------------------
         bottom = QHBoxLayout()  # Creates a horizontal interface named "bottom."
         bottom.addStretch()  # Adds a stretch to the left of the back button.
-        #bottom.addWidget(make_back_button(self))  # Adds the back button to the interface.
         bottom.addStretch()  # Adds a stretch to the right of the back button.
         layout.addLayout(bottom)  # Creates the interface and adds it to the GUI.
 
@@ -663,6 +661,10 @@ class UploadAudioPage(QWidget):
     def stop_audio(self):
         self.player.stop()
         self.wave_timer.stop()
+
+    # Notch audio filter function.
+    def notch_audio(self):
+        self.main_window.toggleFilter("NOTCH")
 
     # Update audio waveform for "scrolling" effect
     def updateWaveform(self):
