@@ -63,23 +63,25 @@ class MainWindow(QMainWindow):
 
         # This is where the different pages are instantiated.
         self.menu_page = MenuPage(parent=self)
+        self.live_page = LiveAudioPage(parent=self)
         self.upload_page = UploadAudioPage(parent=self)
         self.record_page = RecordAudioPage(parent=self)
         self.browser_page = AudioBrowserPage(parent=self)
-        #self.live_page = LiveAudioPage(parent=self) # Potentially if we have time.
 
         self.stack.addWidget(self.menu_page)
+        self.stack.addWidget(self.live_page)
         self.stack.addWidget(self.upload_page)
         self.stack.addWidget(self.record_page)
         self.stack.addWidget(self.browser_page)
 
         # ---- Shared Variables ----
-        self.currAudio = None  # Holds the current audio file, unfiltered
-        self.currFS = None  # Holds the sample rate
-        self.procAudio = None  # Holds processed audio, filtered
-        self.currFilterMode = None  # Holds current state of  filter selected
-        self.tempAudio = None  # Holds temp filtered audio, get deleted lil bro
-        self.audioPos = None  # Hold the timestamp of the current audio that is playing
+        self.currAudio = None      # Holds the current audio file, unfiltered
+        self.currFS = None         # Holds the sample rate
+        self.procAudio = None      # Holds processed audio, filtered
+        self.currFilterMode = None # Holds current state of  filter selected
+        self.tempAudio = None      # Holds temp filtered audio, get deleted lil bro
+        self.audioPos = None       # Hold the timestamp of the current audio that is playing
+        self.liveFilterMode = None # Remembers what filter is active during live audio.
         self.gpioFilterSignal.connect(self.handleGPIO)
         self.show_menu()
 
@@ -98,14 +100,20 @@ class MainWindow(QMainWindow):
                 self.compButton = Button(15, pull_up=True, bounce_time=0.2)
                 self.pwrButton = Button(20, pull_up=True, bounce_time=0.2)
                 # ------------ GPIO Pressed ----------------------------------
-                self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
-                self.hpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("HPF")
-                self.bpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("BPF")
-
-                self.autoQButton.when_pressed = lambda: self.gpioFilterSignal.emit("AUTO")
-                self.eqButton.when_pressed = lambda: self.gpioFilterSignal.emit("EQ")
-                self.compButton.when_pressed = lambda: self.gpioFilterSignal.emit("COMP")
-                self.pwrButton.when_pressed = lambda: self.gpioFilterSignal.emit("PWR")
+                self.lpfButton.when_activated   = lambda: self.gpioFilterSignal.emit("LPF")
+                self.hpfButton.when_activated   = lambda: self.gpioFilterSignal.emit("HPF")
+                self.bpfButton.when_activated   = lambda: self.gpioFilterSignal.emit("BPF")
+                self.autoQButton.when_activated = lambda: self.gpioFilterSignal.emit("AUTO")
+                self.eqButton.when_activated    = lambda: self.gpioFilterSignal.emit("EQ")
+                self.compButton.when_activated  = lambda: self.gpioFilterSignal.emit("COMP")
+                self.pwrButton.when_activated   = lambda: self.gpioFilterSignal.emit("PWR")
+                #------------- GPIO Not Pressed ------------------------------
+                self.lpfButton.when_deactivated   = lambda: self.gpioFilterSignal.emit(None)
+                self.hpfButton.when_deactivated   = lambda: self.gpioFilterSignal.emit(None)
+                self.bpfButton.when_deactivated   = lambda: self.gpioFilterSignal.emit(None)
+                self.autoQButton.when_deactivated = lambda:self.gpioFilterSignal.emit(None)
+                self.eqButton.when_deactivated    = lambda:self.gpioFilterSignal.emit(None)
+                self.compButton.when_deactivated  = lambda:self.gpioFilterSignal.emit(None)
                 # --------------------------------------------------------------------------
                 self.gpio_enabled = True
                 print("GPIO buttons connected.")
@@ -193,12 +201,23 @@ class MainWindow(QMainWindow):
     def show_record_audio(self):
         self.stack.setCurrentWidget(self.record_page)
 
-    #def show_live_audio(self):                      # This is also for later.
-    #    self.stack.setCurrentWidget(self.live_page)
+    # Shows the live audio page.
+    def show_live_audio(self):
+        self.stack.setCurrentWidget(self.live_page)
+        self.live_page.setFocus()
 
     def show_audio_browser(self):
         self.browser_page.load_files()
         self.stack.setCurrentWidget(self.browser_page)
+
+    # Toggles the Live Filtering feature.
+    def toggleLiveFilter(self, mode):
+        if self.liveFilterMode == mode:
+            self.liveFilterMode = None
+            print(f"{mode} live filter off.")
+        else:
+            self.liveFilterMode = mode
+            print(f"{mode} live filter on.")
 
     # -----------------------------------------------------------------------------------------------------------------------
     # This function is more debugging stuff.
@@ -403,7 +422,7 @@ class AudioBrowserPage(QWidget):
         else:
             self.main_window.upload_page.load_audio_file(str(path))
             self.main_window.show_upload_audio()
-    
+
     # Goes "up" to previous tab. Used for if you go into any folders and want to back out to an earlier section.
     def go_up(self):
         parent = self.current_directory.parent
@@ -943,7 +962,6 @@ class UploadAudioPage(QWidget):
         self.player.stop()
         self.main_window.show_menu()
 
-
 # -----------------------------
 # Record Audio Page
 # -----------------------------
@@ -1078,10 +1096,193 @@ class RecordAudioPage(QWidget):
 
 # -----------------------------------------------------------------------------------------------------------------------
 # Setup for the live audio page. The purpose it to be able to record audio in real-time with a connected microphone.
+# This page is a little more tricky, because it can't just utilize files that are already made. It has to be in real-time.
+# It shows a live waveform and filters can be toggled using a keyboard or GPIO inputs.
 class LiveAudioPage(QWidget):
-    def __init__(self, parent: QMainWindow):
+    def __init__(self, parent):
         super().__init__(parent)
-        self.main_window = parent
+        self.main_window = parent # Reference to the main window so we can access shared state.
+
+        # Audio configuration
+        self.sample_rate = 44100 # Samples per second.
+        self.block_size = 1024   # Number of samples processed per callback.
+        self.channels = 1        # Mono audio
+
+        self.stream = None # Audio stream object (created when live audio begins).
+        self.live_buffer = np.zeros(self.block_size * 10) # Buffer used for waveform.
+
+        # Matplotlib objects for waveform plotting.
+        self.canvas = None
+        self.figure = None
+        self.ax = None
+        self.line = None
+
+        # Timer updates waveform ~30 times per second.
+        self.timer = QTimer()
+        self.timer.setInterval(30)
+        self.timer.timeout.connect(self.update_waveform)
+
+        # Allow keyboard input for filter toggling.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        self.build_ui() # Build the UI layout.
+
+    def build_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Page title
+        layout.addWidget(make_title("Live Audio", pt = 18))
+
+        # Status text (running/stopped).
+        self.status_label = QLabel("Live audio stopped!")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("font-size: 16px; color: white;")
+        layout.addWidget(self.status_label)
+
+        # Container that holds the waveform graph.
+        plot_shell = QWidget()
+        plot_shell.setStyleSheet("background-color: white; border-radius: 16px; border: 2px solid rgb(220,220,220);")
+
+        plot_layout = QVBoxLayout(plot_shell)
+
+        # Layout where the Matplotlib canvas will be inserted into.
+        self.canvas_container = QVBoxLayout()
+        plot_layout.addLayout(self.canvas_container)
+
+        layout.addWidget(plot_shell, stretch=1)
+
+        # Row for Start/Stop buttons.
+        row = QHBoxLayout()
+        row.addStretch()
+
+        self.start_btn = make_action_button("Start Live", "rgb(34,139,34)", "rgb(24,110,24)",
+                                            "rgb(14,90,14)")
+        self.stop_btn = make_action_button("Stop Live", "rgb(200,0,0)", "rgb(170,0,0)",
+                                           "rgb(140,0,0)")
+
+        # Start/Stop audio streaming.
+        self.start_btn.clicked.connect(self.start_live_audio)
+        self.stop_btn.clicked.connect(self.stop_live_audio)
+
+        row.addWidget(self.start_btn)
+        row.addWidget(self.stop_btn)
+        row.addStretch()
+
+        layout.addLayout(row)
+
+        # Back button to return to main menu.
+        bottom = QHBoxLayout()
+        bottom.addStretch()
+        bottom.addWidget(make_back_button(self))
+        bottom.addStretch()
+        layout.addLayout(bottom)
+
+    # Create the Matplotlib plot if one doesn't exist.
+    def ensure_canvas(self):
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+
+        if self.canvas is None: # Create figure and embed it into the GUI.
+            self.figure = Figure(figsize=(8,4), facecolor = "white")
+            self.canvas = FigureCanvas(self.figure)
+            self.canvas_container.addWidget(self.canvas)
+
+            # Creates axes for waveform.
+            self.ax = self.figure.add_subplot(111)
+            self.ax.set_facecolor("black")
+
+            # Set waveform limits.
+            self.ax.set_ylim(-1.0,1.0)
+            self.ax.set_xlim(0,len(self.live_buffer))
+
+            # Hide axes labels.
+            self.ax.set_xticks([])
+            self.ax.set_yticks([])
+
+            # Create the waveform line.
+            self.line, = self.ax.plot(self.live_buffer, linewidth = 1.5)
+            self.figure.tight_layout()
+            self.canvas.draw()
+
+    # This function will run continously in real time.
+    # It receives microphone input and should output audio right away.
+    def audio_callback(self, indata, outdata, frames, time, status):
+        if status:
+            print(status)
+
+        # Get mono audio from input.
+        audio = indata[:,0].copy()
+
+        # Get current active filter mode from main window.
+        mode = self.main_window.liveFilterMode
+
+        # ***For now: pass-through. No filtering yet.***
+        processed = audio
+
+        # Send processed audio to speakers.
+        outdata[:,0] = processed
+
+        # Update rolling buffer for waveform display.
+        self.live_buffer = np.roll(self.live_buffer, -len(processed))
+        self.live_buffer[-len(processed):] = processed
+
+    # Prevents starting multiple streams.
+    def start_live_audio(self):
+        if self.stream is not None:
+            return
+
+        # Ensure the graph exists.
+        self.ensure_canvas()
+
+        try:
+            # Create real-time audio stream.
+            self.stream = sd.Stream(samplerate = self.sample_rate, blocksize = self.block_size,
+                                    channels = self.channels, dtype = "float32", callback = self.audiocallback)
+            self.stream.start()
+            self.timer.start() # Start waveform updates.
+            self.status_label.setText("Live audio running!")
+            self.setFocus() # Ensure keyboard focus is working.
+
+        except Exception as e:
+            QMessageBox.warning(self, "Live Audio Error", str(e))
+
+    def stop_live_audio(self):
+        self.timer.stop() # Stop waveform updates.
+
+        if self.stream is not None:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
+
+            self.stream = None
+
+        self.status_label.setText("Live audio stopped!")
+
+    # Refresh waveform display with the latest buffer data.
+    def update_waveform(self):
+        if self.line is not None:
+            self.line.set_ydata(self.live_buffer)
+            self.canvas.draw_idle()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_L:
+            self.main_window.toggleLiveFilter("LPF")
+        elif event.key() == Qt.Key.Key_H:
+            self.main_window.toggleLiveFilter("HPF")
+        elif event.key() == Qt.Key.Key_B:
+            self.main_window.toggleLiveFilter("BPF")
+        elif event.key() == Qt.Key.Key_E:
+            self.main_window.toggleLiveFilter("EQ")
+        elif event.key() == Qt.Key.Key_C:
+            self.main_window.toggleLiveFilter("COMP")
+        else:
+            super().keyPressEvent(event)
+
+    def go_back_to_menu(self):
+        self.stop_live_audio()
+        self.main_window.show_menu()
 
 
 # -----------------------------
@@ -1110,7 +1311,7 @@ class MenuPage(QWidget):
         # These are the three primary buttons on the main menu. I turned them into a vertical format rather than horizontal.
         self.btn_upload = make_big_button("Upload Audio", "rgb(30,144,255)", "rgb(20,120,220)", "rgb(15,100,200)")
         self.btn_record = make_big_button("Record Audio", "rgb(255,165,0)", "rgb(230,140,0)", "rgb(200,120,0)")
-        self.btn_live = make_big_button("Live Audio", "rgb(255,0,0)", "rgb(165, 42, 42", "rgb(145,56,49)")
+        self.btn_live = make_big_button("Live Audio", "rgb(27,212,64)", "rgb(24,178,55)", "rgb(19,138,43)")
 
         grid.addWidget(self.btn_upload, 0, 0, alignment=Qt.AlignmentFlag.AlignCenter)
         grid.addWidget(self.btn_record, 1, 0, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -1127,7 +1328,7 @@ class MenuPage(QWidget):
 
         self.btn_upload.clicked.connect(self.main_window.show_upload_audio)
         self.btn_record.clicked.connect(self.main_window.show_record_audio)
-        #self.btn_live.clicked.connect(self.main_window.show_live_audio)
+        self.btn_live.clicked.connect(self.main_window.show_live_audio)
 
 
 # -----------------------------
