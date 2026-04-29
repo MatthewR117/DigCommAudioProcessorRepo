@@ -19,7 +19,7 @@ import numpy as np
 # ------------ Filter Functions ------------------
 # LPF
 def LPF(x,fs):       
-    fc = 3000 # !! USING 3 kHz FOR NOW, UNTIL MORE GUI !!
+    fc = 3000 # !! NEEDS TO BE VARIABLE VIA GUI !!
     order = 4
     nyq = 0.5 * fs
     Wn = fc / nyq
@@ -37,7 +37,7 @@ def LPF(x,fs):
     
 # HPF
 def HPF(x,fs):                                    
-    fc = 1000 # !! USING 1 kHz FOR NOW, UNTIL MORE GUI !!
+    fc = 1000 # !! NEEDS TO BE VARIABLE VIA GUI !!
     order = 4
     nyq = 0.5 * fs
     Wn = fc / nyq
@@ -55,8 +55,8 @@ def HPF(x,fs):
 
 # BPF 
 def BPF(x,fs):  
-    lowcut = 500 # Hz Temp Default
-    highcut = 2400 # Hz Temp Default
+    lowcut = 500 # Hz Temp Default  !! NEEDS TO BE VARIABLE VIA GUI !!
+    highcut = 2400 # Hz Temp Default !! NEEDS TO BE VARIABLE VIA GUI !!
     order = 4
     nyq = 0.5 * fs
     low = lowcut / nyq # low and high act as fc
@@ -74,18 +74,22 @@ def BPF(x,fs):
 # NOTCH
 def NOTCH(x,fs):
     #notchCount = int(input("Enter number of notches to filter (max of 4): ").strip())
-    f0 = 60 # Hz
+    # !! NEEDS TO BE VARIABLE VIA GUI !!
+    f0 = 500 # Hz
     Q = 30
     # create filter
-    b,a = iirnotch(f0,Q,fs)
+    b,a = signal.iirnotch(f0,Q,fs)
+
+    # convert to SOS for sosfiltfilt (TF2!!!!!!!!!)
+    sos = signal.tf2sos(b,a)
     # plot bode
-    plotBode(b,a,fs, title="Notch Bode Plot")
-    y = filtfilt(b,a,x)
-    return y,f0,Q
+    #plotBode(b,a,fs, title="Notch Bode Plot")
+    #y = filtfilt(b,a,x)
+    return signal.sosfiltfilt(sos,x)
    
 # 3 Band Multi Eq
 def threeBandEQ(x,fs):
-    # for rn since caden is lackin on gui...
+    # !! NEEDS TO BE VARIABLE VIA GUI !!
     # gain in dB
     lowGain  = 3.0
     midGain = 0.3
@@ -217,6 +221,8 @@ def applyFilter(infile, outfile, mode, normalize = True):
         y = threeBandEQ(x,fs)
     elif mode == "COMP":
         y = COMP(x,fs)
+    elif mode == "NOTCH":
+        y = NOTCH(x,fs)
     else:
         y = x 
     
@@ -294,4 +300,3 @@ def plotFFT_compare(x, y, fs):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
-
