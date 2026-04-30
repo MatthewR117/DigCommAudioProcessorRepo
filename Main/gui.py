@@ -4,7 +4,6 @@
 # - Low-pass, High-pass, Band-pass, EQ, compress, and Notch filters.
 # - Tempoary output and save output.
 # - Scrolling Audio Waveform and FFT display.
-# - Live Filter Updating
 
 # Created by Matthew Reyna and Caden Craddock
 
@@ -17,7 +16,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import time
-import spidev # Commented out just so I can run stuff. - Caden C.
+#import spidev # Commented out just so I can run stuff. - Caden C.
 
 from PyQt6.QtCore import Qt, QUrl, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -38,13 +37,11 @@ except Exception:
     Button = None
     GPIO_AVAILABLE = False  # If GPIO ports aren't connected, jump to GPIO_AVAILABLE 'else' block.
 
-from dsp import applyFilter
+from dsp import applyFilter, applyLiveFilter # Updated to include LiveFilter function.
 
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
 #  Global variable to hold current date for file output
 date = datetime.datetime.now().strftime("%Y-%m-%d")
-
-
 
 
 # -----------------------------
@@ -85,30 +82,8 @@ class MainWindow(QMainWindow):
         self.tempAudio = None      # Holds temp filtered audio, get deleted lil bro
         self.audioPos = None       # Hold the timestamp of the current audio that is playing
         self.liveFilterMode = None # Remembers what filter is active during live audio.
-        self.gpioFilterSignal.connect(self.toggleFilter)
+        self.gpioFilterSignal.connect(self.handleGPIO)
         self.show_menu()
-        
-        # --- SPI SETUP ---
-        spi = spidev.SpiDev()
-        spi.open(0, 0)
-        spi.max_speed_hz = 500000
-
-        # --- STATE ---
-        last_volume = -1
-        last_q = -1
-        last_bit = -1
-
-        Q_factor = 0
-        bit_depth = 16  # control value only (no DSP here)
-
-        # --- CONTROLS ---
-        def read_ch0():
-            r = spi.xfer([1,(8+0)<<4,0])
-            return ((r[1]&3<<8))+r[2]
-            
-
-            v = read_ch0() // 10 # scale
-            os.system(f"amixer set Master {v}%")
 
         # ----------- Filter GPIO Setup --------------------
         self.gpio_enabled = False
@@ -494,7 +469,7 @@ class UploadAudioPage(QWidget):
     # save audio function
     def saveAudio(self):
         if self.main_window.procAudio is None:
-            QMessageBox.information(self, "Save Audio", "No filtered audio to save, chud")
+            QMessageBox.information(self, "Save Audio", "No filtered audio to save.")
             return
 
         # Save filtered to .wav
@@ -536,7 +511,7 @@ class UploadAudioPage(QWidget):
         self.player.play()
 
         # Jump back to old playback location. Acts as a delay to give the QMediaPlayer time to function right.
-        QTimer.singleShot(30, lambda: self.player.setPosition(position_ms))
+        QTimer.singleShot(10, lambda: self.player.setPosition(position_ms))
 
         # Start the waveform.
         self.wave_timer.start()
@@ -595,7 +570,7 @@ class UploadAudioPage(QWidget):
         self.plot_select.addItem("Choose File")
         self.plot_select.addItem("Waveform")
         self.plot_select.addItem("FFT")
-        self.plot_select.setFixedSize(300, 50)
+        self.plot_select.setFixedSize(180, 50)
         self.plot_select.setStyleSheet("""QComboBox{font-size: 17px; padding: 6px; border-raidus: 10px;
                 background-color: rgb(128,128,128); color: white;}""")
         self.plot_select.activated[int].connect(self.change_plot_type)
@@ -1130,7 +1105,7 @@ class LiveAudioPage(QWidget):
 
         # Audio configuration
         self.sample_rate = 44100 # Samples per second.
-        self.block_size = 1024   # Number of samples processed per callback.
+        self.block_size = 4096   # Number of samples processed per callback.
         self.channels = 1        # Mono audio
 
         self.stream = None # Audio stream object (created when live audio begins).
@@ -1189,18 +1164,13 @@ class LiveAudioPage(QWidget):
         self.start_btn.clicked.connect(self.start_live_audio)
         self.stop_btn.clicked.connect(self.stop_live_audio)
 
+        # Add the button widgets into the row.
         row.addWidget(self.start_btn)
         row.addWidget(self.stop_btn)
+        row.addWidget(make_back_button(self))
         row.addStretch()
 
         layout.addLayout(row)
-
-        # Back button to return to main menu.
-        bottom = QHBoxLayout()
-        bottom.addStretch()
-        bottom.addWidget(make_back_button(self))
-        bottom.addStretch()
-        layout.addLayout(bottom)
 
     # Create the Matplotlib plot if one doesn't exist.
     def ensure_canvas(self):
@@ -1241,8 +1211,9 @@ class LiveAudioPage(QWidget):
         # Get current active filter mode from main window.
         mode = self.main_window.liveFilterMode
 
-        # ***For now: pass-through. No filtering yet.***
-        processed = audio
+        # This calls the live filtering command and allows filters to be applied.
+        mode = self.main_window.liveFilterMode
+        processed = applyLiveFilter(audio, self.sample_rate, mode)
 
         # Send processed audio to speakers.
         outdata[:,0] = processed
@@ -1250,6 +1221,10 @@ class LiveAudioPage(QWidget):
         # Update rolling buffer for waveform display.
         self.live_buffer = np.roll(self.live_buffer, -len(processed))
         self.live_buffer[-len(processed):] = processed
+
+        # This line is for debugging purposes.
+        mode = self.main_window.liveFilterMode
+        print("Current live mode:", mode)
 
     # Prevents starting multiple streams.
     def start_live_audio(self):
@@ -1262,7 +1237,7 @@ class LiveAudioPage(QWidget):
         try:
             # Create real-time audio stream.
             self.stream = sd.Stream(samplerate = self.sample_rate, blocksize = self.block_size,
-                                    channels = self.channels, dtype = "float32", callback = self.audiocallback)
+                                    channels = self.channels, dtype = "float32", callback = self.audio_callback)
             self.stream.start()
             self.timer.start() # Start waveform updates.
             self.status_label.setText("Live audio running!")
@@ -1302,13 +1277,14 @@ class LiveAudioPage(QWidget):
             self.main_window.toggleLiveFilter("EQ")
         elif event.key() == Qt.Key.Key_C:
             self.main_window.toggleLiveFilter("COMP")
+        elif event.key() == Qt.Key.Key_N:
+            self.main_window.toggleLiveFilter("NOTCH")
         else:
             super().keyPressEvent(event)
 
     def go_back_to_menu(self):
         self.stop_live_audio()
         self.main_window.show_menu()
-
 
 # -----------------------------
 # Menu Page
@@ -1368,4 +1344,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
