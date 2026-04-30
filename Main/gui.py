@@ -4,6 +4,7 @@
 # - Low-pass, High-pass, Band-pass, EQ, compress, and Notch filters.
 # - Tempoary output and save output.
 # - Scrolling Audio Waveform and FFT display.
+# - Live Filter Updating
 
 # Created by Matthew Reyna and Caden Craddock
 
