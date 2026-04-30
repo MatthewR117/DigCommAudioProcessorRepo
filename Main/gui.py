@@ -16,7 +16,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import time
-#import spidev # Commented out just so I can run stuff. - Caden C.
+import spidev # Commented out just so I can run stuff. - Caden C.
 
 from PyQt6.QtCore import Qt, QUrl, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -42,6 +42,8 @@ from dsp import applyFilter
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
 #  Global variable to hold current date for file output
 date = datetime.datetime.now().strftime("%Y-%m-%d")
+
+
 
 
 # -----------------------------
@@ -82,8 +84,30 @@ class MainWindow(QMainWindow):
         self.tempAudio = None      # Holds temp filtered audio, get deleted lil bro
         self.audioPos = None       # Hold the timestamp of the current audio that is playing
         self.liveFilterMode = None # Remembers what filter is active during live audio.
-        self.gpioFilterSignal.connect(self.handleGPIO)
+        self.gpioFilterSignal.connect(self.toggleFilter)
         self.show_menu()
+        
+        # --- SPI SETUP ---
+        spi = spidev.SpiDev()
+        spi.open(0, 0)
+        spi.max_speed_hz = 500000
+
+        # --- STATE ---
+        last_volume = -1
+        last_q = -1
+        last_bit = -1
+
+        Q_factor = 0
+        bit_depth = 16  # control value only (no DSP here)
+
+        # --- CONTROLS ---
+        def read_ch0():
+            r = spi.xfer([1,(8+0)<<4,0])
+            return ((r[1]&3<<8))+r[2]
+            
+
+            v = read_ch0() // 10 # scale
+            os.system(f"amixer set Master {v}%")
 
         # ----------- Filter GPIO Setup --------------------
         self.gpio_enabled = False
@@ -511,7 +535,7 @@ class UploadAudioPage(QWidget):
         self.player.play()
 
         # Jump back to old playback location. Acts as a delay to give the QMediaPlayer time to function right.
-        QTimer.singleShot(10, lambda: self.player.setPosition(position_ms))
+        QTimer.singleShot(30, lambda: self.player.setPosition(position_ms))
 
         # Start the waveform.
         self.wave_timer.start()
@@ -570,7 +594,7 @@ class UploadAudioPage(QWidget):
         self.plot_select.addItem("Choose File")
         self.plot_select.addItem("Waveform")
         self.plot_select.addItem("FFT")
-        self.plot_select.setFixedSize(180, 50)
+        self.plot_select.setFixedSize(300, 50)
         self.plot_select.setStyleSheet("""QComboBox{font-size: 17px; padding: 6px; border-raidus: 10px;
                 background-color: rgb(128,128,128); color: white;}""")
         self.plot_select.activated[int].connect(self.change_plot_type)
@@ -1343,3 +1367,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
