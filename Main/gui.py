@@ -6,7 +6,6 @@
 # - Scrolling Audio Waveform and FFT display.
 
 # Created by Matthew Reyna and Caden Craddock
-
 import sys
 from pathlib import Path
 import datetime
@@ -44,9 +43,9 @@ QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL)
 date = datetime.datetime.now().strftime("%Y-%m-%d")
 
 
-# -----------------------------
-#  !!!!!!!!!!!!!!!!!!!!! MAIN RETARD MAIN !!!!!!!!!!!!!!!!
-# -----------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# ********************** MAIN ****************************
+#-----------------------------------------------------------------------------------------------------------------------
 class MainWindow(QMainWindow):
     gpioFilterSignal = pyqtSignal(str)
 
@@ -82,7 +81,7 @@ class MainWindow(QMainWindow):
         self.tempAudio = None      # Holds temp filtered audio, get deleted lil bro
         self.audioPos = None       # Hold the timestamp of the current audio that is playing
         self.liveFilterMode = None # Remembers what filter is active during live audio.
-        self.gpioFilterSignal.connect(self.handleGPIO)
+        self.gpioFilterSignal.connect(self.routeGPIO)
         self.show_menu()
 
         # ----------- Filter GPIO Setup --------------------
@@ -173,6 +172,15 @@ class MainWindow(QMainWindow):
         self.tempAudio = output_path
         self.currFilterMode = mode
         return output_path
+
+    # Checks which page the user is on (Upload/Live) and then moves to the correct functions (toggle/toggleLive).
+    def routeGPIO(self, mode):
+        current = self.stack.currentWidget()
+
+        if current == self.upload_page:
+            self.toggleFilter(mode)
+        elif current == self.live_page:
+            self.toggleLiveFilter(mode)
 
     # delete temp audio function
     def deleteTemp(self):
@@ -327,7 +335,6 @@ def save_wav_file_dialog(parent: QWidget, title: str, default_name: str = "recor
     if dialog.exec():
         return dialog.selectedFiles()[0]
     return ""
-
 #-----------------------------------------------------------------------------------------------------------------------
 # Audio Browser Page - Allows the user to scroll through an "in-GUI" list of audio files.
 #-----------------------------------------------------------------------------------------------------------------------
@@ -433,9 +440,9 @@ class AudioBrowserPage(QWidget):
     # Jumps back to the main "upload audio" page.
     def go_back_to_menu(self):
         self.main_window.show_upload_audio()
-# -----------------------------
+#-----------------------------------------------------------------------------------------------------------------------
 #   $$$$$$$$$ Upload Audio Page $$$$$$$$$$
-# -----------------------------
+#-----------------------------------------------------------------------------------------------------------------------
 class UploadAudioPage(QWidget):
     def __init__(self, parent: QMainWindow):
         super().__init__(parent)
@@ -961,10 +968,9 @@ class UploadAudioPage(QWidget):
     def go_back_to_menu(self):
         self.player.stop()
         self.main_window.show_menu()
-
-# -----------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 # Record Audio Page
-# -----------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 class RecordAudioPage(QWidget):
     def __init__(self, parent: QMainWindow):
         super().__init__(parent)
@@ -1092,9 +1098,9 @@ class RecordAudioPage(QWidget):
             self.stream = None
 
         self.main_window.show_menu()
-
-
-# -----------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# Live Audio Class
+# ----------------------------------------------------------------------------------------------------------------------
 # Setup for the live audio page. The purpose it to be able to record audio in real-time with a connected microphone.
 # This page is a little more tricky, because it can't just utilize files that are already made. It has to be in real-time.
 # It shows a live waveform and filters can be toggled using a keyboard or GPIO inputs.
@@ -1105,7 +1111,7 @@ class LiveAudioPage(QWidget):
 
         # Audio configuration
         self.sample_rate = 44100 # Samples per second.
-        self.block_size = 4096   # Number of samples processed per callback.
+        self.block_size = 4096   # Number of samples processed per callback. Increase to lower "static" noises.
         self.channels = 1        # Mono audio
 
         self.stream = None # Audio stream object (created when live audio begins).
@@ -1171,7 +1177,7 @@ class LiveAudioPage(QWidget):
         row.addStretch()
 
         layout.addLayout(row)
-
+#-----------------------------------------------------------------------------------------------------------------------
     # Create the Matplotlib plot if one doesn't exist.
     def ensure_canvas(self):
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -1221,10 +1227,6 @@ class LiveAudioPage(QWidget):
         # Update rolling buffer for waveform display.
         self.live_buffer = np.roll(self.live_buffer, -len(processed))
         self.live_buffer[-len(processed):] = processed
-
-        # This line is for debugging purposes.
-        mode = self.main_window.liveFilterMode
-        print("Current live mode:", mode)
 
     # Prevents starting multiple streams.
     def start_live_audio(self):
@@ -1285,10 +1287,9 @@ class LiveAudioPage(QWidget):
     def go_back_to_menu(self):
         self.stop_live_audio()
         self.main_window.show_menu()
-
-# -----------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 # Menu Page
-# -----------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 class MenuPage(QWidget):
     def __init__(self, parent: MainWindow):
         super().__init__(parent)
@@ -1330,17 +1331,14 @@ class MenuPage(QWidget):
         self.btn_upload.clicked.connect(self.main_window.show_upload_audio)
         self.btn_record.clicked.connect(self.main_window.show_record_audio)
         self.btn_live.clicked.connect(self.main_window.show_live_audio)
-
-
-# -----------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 # Entry Point
-# -----------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 def main():
     app = QApplication(sys.argv)
     w = MainWindow()
     w.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
