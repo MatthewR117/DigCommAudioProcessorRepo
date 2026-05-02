@@ -18,21 +18,9 @@ import numpy as np
 
 # ------------ Filter Functions ------------------
 # LPF
-def LPF(x, fs):
-    fc = 3000  # !! NEEDS TO BE VARIABLE VIA GUI !!
-    order = 4
-    nyq = 0.5 * fs
-    Wn = fc / nyq
-
+def LPF(x, fs,fc = 3000):
     # Construct Lowpass filter with specs
-    sos = butter(order, Wn, btype="low", output="sos")
-
-    # Plot Bode
-    # plotBode(sos,fs,"Low-Pass Filter Bode Plot")
-    # y = sosfiltfilt(sos,x)
-
-    # Plot time graph
-    # plotTime(x,y,fs,title = "Low-Pass Filter Time Graph")
+    sos = butter(6, fc, btype="lowpass", fs=fs, output="sos")
     return sosfiltfilt(sos, x)
 
 # HPF
@@ -210,7 +198,7 @@ def normalizeAudio(x):
 
 
 # ---------- !!! Apply filter function !!! ----------
-def applyFilter(infile, outfile, mode, normalize=True):
+def applyFilter(infile, outfile, mode, normalize=True, lpf_cutoff=3000):
     x, fs = sf.read(infile, always_2d=False)
 
     # convert to mono for rn
@@ -221,7 +209,7 @@ def applyFilter(infile, outfile, mode, normalize=True):
 
     # Filter states
     if mode == "LPF":
-        y = LPF(x, fs)
+        y = LPF(x, fs,fc=lpf_cutoff)
     elif mode == "HPF":
         y = HPF(x, fs)
     elif mode == "BPF":
@@ -244,27 +232,6 @@ def applyFilter(infile, outfile, mode, normalize=True):
 
 # !! May or may not need !!
 # ------------ Plot Functions ------------------
-# Plot TimeFunction
-def plotTime(x, y, fs, title="Time Domain", t0=0, t1=0.05):
-    n = len(x)
-    t = np.arange(n) / fs
-
-    i0 = int(t0 * fs)
-    i1 = int(t1 * fs)
-
-    plt.figure(figsize=(12, 5))
-    plt.plot(t[i0:i1], x[i0:i1], label="Original")
-    plt.plot(t[i0:i1], y[i0:i1], label="Filtered")
-
-    plt.xlabel("Time (s)")
-    plt.ylabel("Amplitude")
-    plt.title(title)
-    plt.legend()
-    plt.grid(True)
-
-    plt.show()
-
-
 # Bode Plot
 def plotBode(b, a, fs, title="Bode Plot"):
     w, h = freqz(b, a, worN=65536)
@@ -284,31 +251,6 @@ def plotBode(b, a, fs, title="Bode Plot"):
 
     plt.show()
 
-
-# FFT Compare
-def plotFFT_compare(x, y, fs):
-    N = len(x)
-
-    X = np.fft.rfft(x)
-    Y = np.fft.rfft(y)
-
-    f = np.fft.rfftfreq(N, d=1 / fs)
-
-    magX = np.abs(X)
-    magY = np.abs(Y)
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(f, magX, label="Original")
-    plt.plot(f, magY, label="Equalized", alpha=0.7)
-
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Magnitude")
-    plt.title("FFT Comparison")
-    plt.xlim(0, 8000)
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
 
 #------------------------------------------------------------------------------------
 # ******* MATTHEW I'M ADDING THIS TO WORK ON THE LIVE AUDIO PLS DON'T KILL ME *******
