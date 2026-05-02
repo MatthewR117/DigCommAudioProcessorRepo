@@ -125,6 +125,11 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.setCentralWidget(self.stack)
 
+        # "Sleep" overlay
+        self.sleep_overlay = QWidget(self)
+        self.sleep_overlay.setStyleSheet("background-color: black;")
+        self.sleep_overlay.hide()
+
         # Create pages.
         self.menu_page = MenuPage(parent=self)
         self.live_page = LiveAudioPage(parent=self)
@@ -244,12 +249,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Processing Error", str(e))
 
     def display_off(self):
-        print("Display OFF")
-        os.system("xset dpms force off")
+        print("Display overlay ON!")
+        self.sleep_overlay.setGeometry(self.rect())
+        self.sleep_overlay.raise_()
+        self.sleep_overlay.show()
 
     def display_on(self):
-        print("Display ON")
-        os.system("xset dpms force on")
+        print("Display overlay OFF!")
+        self.sleep_overlay.hide()
 
     def applyFilterToCurrAudio(self, mode):
         if self.currAudio is None:
@@ -355,6 +362,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, "sleep_overlay"):
+            self.sleep_overlay.setGeometry(self.rect())
 
     def show_menu(self):
         self.stack.setCurrentWidget(self.menu_page)
