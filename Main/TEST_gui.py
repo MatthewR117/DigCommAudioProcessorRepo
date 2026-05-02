@@ -81,7 +81,7 @@ class PotReader:
         val = self.read_channel(2)
 
         # Convert 0-1023 ADC value into Q range: 1-30.
-        q = 1.0 + (val / 1023.0) * 29.0
+        q = 1.0 + (val / 1023.0) * 100.0
         return q
 
     def close(self):
@@ -128,6 +128,7 @@ class MainWindow(QMainWindow):
         #----------------------------------------------
         # These shared variables may be temporary...
         self.qFactor = 30.0
+        self.qLockedByButton = False # The logic that checks if the Automatic Q button is pressed down.
 
         self.pot_reader = PotReader()
 
@@ -218,6 +219,11 @@ class MainWindow(QMainWindow):
         if q is None:
             return
 
+        # If auto Q button locked the value, ignore the potentiometer dial.
+        if self.qLockedByButton:
+            self.update_q_displays()
+            return
+
         self.qFactor = q
         self.update_q_displays()
 
@@ -225,7 +231,8 @@ class MainWindow(QMainWindow):
         return self.qFactor
 
     def update_q_displays(self):
-        text = f"Q: {self.get_current_q():.2f}"
+        lock_text = "AUTO" if self.qLockedByButton else "DIAL"
+        text = f"Q: {self.get_current_q():.2f} | {lock_text}"
 
         if hasattr(self.upload_page, "q_label"):
             self.upload_page.q_label.setText(text)
@@ -264,9 +271,14 @@ class MainWindow(QMainWindow):
 
             # Auto Q button sets Q back to default/narrow value.
         if mode == "AUTO":
-            self.qFactor = 30.0
+            if self.qLockedByButton:
+                self.qLockedByButton = False
+                print("Manual Q disal control restored.")
+            else:
+                self.qFactor = 30.0
+                self.qLockedByButton = True # When true, the pentiometer cannot affect the Q value.
+                print("Auto Q selected: Q locked at 30.0")
             self.update_q_displays()
-            print("Auto Q selected: Q = 30.0")
             return
 
         current = self.stack.currentWidget()
