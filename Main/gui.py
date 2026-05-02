@@ -4,6 +4,7 @@
 # - Low-pass, High-pass, Band-pass, EQ, compress, and Notch filters.
 # - Tempoary output and save output.
 # - Scrolling Audio Waveform and FFT display.
+# - Cutoff Freq Editing
 
 # Created by Matthew Reyna and Caden Craddock
 import sys
@@ -51,10 +52,15 @@ class MainWindow(QMainWindow):
 
     # ---- Filter Cutoff Defaults ----
     lpf_cutoff =   3000 # Hz
+    hpf_cutoff = 1000 # Hz
+    lowcut = 500 # Hz
+    highcut = 2500 #Hz
+
+    currFilterMode = None
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("NIGGER COCK")  # Set the title of the main menu.
+        self.setWindowTitle("DSP Machine")  # Set the title of the main menu.
         self.setFixedSize(1024, 600)  # Match the 7" display resolution automatically.
         self.setStyleSheet(
             "background-color: rgb(150, 150, 150);")  # Change the background color of the main menu (gray).
@@ -84,7 +90,6 @@ class MainWindow(QMainWindow):
         self.audioPos = None       # Hold the timestamp of the current audio that is playing
         self.liveFilterMode = None # Remembers what filter is active during live audio.
         self.gpioFilterSignal.connect(self.routeGPIO)
-        #self.lpf_cutoff =   3000 # Hz
         self.show_menu()
 
         # ----------- Filter GPIO Setup --------------------
@@ -153,6 +158,8 @@ class MainWindow(QMainWindow):
                 # Load the filtered audio without restarting.
                 self.upload_page.play_audio_at_position(current_pos)
                 print(f"{mode} applied.")
+                if self.upload_page.cutoff_panel.isVisible():
+                    self.upload_page.refresh_cutoff_panel()
 
         except Exception as e:
             print(f"{mode} failed.") # Prints if the filter fails to apply.
@@ -175,8 +182,11 @@ class MainWindow(QMainWindow):
         str(output_path),
         mode,
         normalize=True,
-        lpf_cutoff=self.lpf_cutoff
-    )
+        lpf_cutoff=self.lpf_cutoff,
+        hpf_cutoff=self.hpf_cutoff,
+        lowcut = self.lowcut,
+        highcut = self.highcut
+        )
 
         self.tempAudio = output_path
         self.currFilterMode = mode
@@ -237,7 +247,7 @@ class MainWindow(QMainWindow):
             print(f"{mode} live filter on.")
 
     # -----------------------------------------------------------------------------------------------------------------------
-    # This function is more debugging stuff.
+    # TOGGLE FILTER FUNCTION
     def toggleFilter(self, mode):
         if self.stack.currentWidget() is not self.upload_page:
             return
@@ -256,8 +266,9 @@ class MainWindow(QMainWindow):
                 self.upload_page.waveformInit()
             else:
                 self.upload_page.plot_fft(Path(self.currAudio))
-            #audioPos = self.upload_page.play_audio()
             self.upload_page.play_audio_at_position(current_pos) # (startPos=audioPos)
+            if self.upload_page.cutoff_panel.isVisible():
+                self.upload_page.refresh_cutoff_panel()
             return
 
         # Otherwise, turn the filter on
@@ -585,8 +596,9 @@ class UploadAudioPage(QWidget):
         self.plot_select = QComboBox()
         self.plot_select.addItem("Waveform")
         self.plot_select.addItem("Choose File")
-        self.plot_select.addItem("FFT")
         self.plot_select.addItem("Edit Cutoffs")
+        self.plot_select.addItem("FFT")
+        self.plot_select.addItem("Bode Plot")
         self.plot_select.setFixedSize(180, 50)
         self.plot_select.setStyleSheet("""QComboBox{font-size: 17px; padding: 6px; border-raidus: 10px;
                 background-color: rgb(128,128,128); color: white;}""")
@@ -624,7 +636,7 @@ class UploadAudioPage(QWidget):
 
         layout.addWidget(plot_shell, stretch=1)
         
-        # ---------------- LPF Cutoff Editor ----------------
+# ---------------- Filter Cutoff Editor ----------------
         self.cutoff_panel = QWidget()
         self.cutoff_panel.setStyleSheet("""
             QWidget {
@@ -641,23 +653,73 @@ class UploadAudioPage(QWidget):
         cutoff_layout.setContentsMargins(12, 8, 12, 8)
         cutoff_layout.setSpacing(6)
 
-        self.lpf_cutoff_label = QLabel()
-        self.lpf_cutoff_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cutoff_title_label = QLabel("Edit Cutoffs")
+        self.cutoff_title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cutoff_title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: white;")
+        cutoff_layout.addWidget(self.cutoff_title_label)
 
-        self.lpf_cutoff_slider = QSlider(Qt.Orientation.Horizontal)
-        self.lpf_cutoff_slider.setMinimum(100)
-        self.lpf_cutoff_slider.setMaximum(10000)
-        self.lpf_cutoff_slider.setValue(self.main_window.lpf_cutoff)
-        self.lpf_cutoff_slider.valueChanged.connect(self.update_lpf_cutoff)
+        # Message shown when no editable filter is active
+        self.cutoff_status_label = QLabel("Apply LPF, HPF, or BPF first.")
+        self.cutoff_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cutoff_layout.addWidget(self.cutoff_status_label)
 
-        cutoff_layout.addWidget(self.lpf_cutoff_label)
-        cutoff_layout.addWidget(self.lpf_cutoff_slider)
-    #-------------------------------------------
+        # -- One reusable slider for LPF and HPF --
+        self.single_cutoff_label = QLabel()
+        self.single_cutoff_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.single_cutoff_slider = QSlider(Qt.Orientation.Horizontal)
+        self.single_cutoff_slider.setMinimum(50)
+        self.single_cutoff_slider.setMaximum(10000)
+        self.single_cutoff_slider.valueChanged.connect(self.update_single_cutoff)
+
+        cutoff_layout.addWidget(self.single_cutoff_label)
+        cutoff_layout.addWidget(self.single_cutoff_slider)
+
+        # -- BPF low slider --
+        self.bpf_lowcut_label = QLabel()
+        self.bpf_lowcut_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.bpf_lowcut_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bpf_lowcut_slider.setMinimum(50)
+        self.bpf_lowcut_slider.setMaximum(10000)
+        self.bpf_lowcut_slider.setValue(self.main_window.lowcut)
+        self.bpf_lowcut_slider.valueChanged.connect(self.update_bpf_lowcut)
+
+        cutoff_layout.addWidget(self.bpf_lowcut_label)
+        cutoff_layout.addWidget(self.bpf_lowcut_slider)
+
+        # --  BPF high slider -- 
+        self.bpf_highcut_label = QLabel()
+        self.bpf_highcut_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.bpf_highcut_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bpf_highcut_slider.setMinimum(50)
+        self.bpf_highcut_slider.setMaximum(10000)
+        self.bpf_highcut_slider.setValue(self.main_window.highcut)
+        self.bpf_highcut_slider.valueChanged.connect(self.update_bpf_highcut)
+
+        cutoff_layout.addWidget(self.bpf_highcut_label)
+        cutoff_layout.addWidget(self.bpf_highcut_slider)
 
         layout.addWidget(self.cutoff_panel)
+        self.update_filter_btn = make_action_button(
+            "Update Filter",
+            "rgb(255,140,0)",
+            "rgb(230,120,0)",
+            "rgb(200,100,0)"
+        )
+
+        self.update_filter_btn.clicked.connect(self.update_active_filter)
+        self.update_filter_btn.hide()
+
+        cutoff_layout.addWidget(
+            self.update_filter_btn,
+            alignment=Qt.AlignmentFlag.AlignCenter
+        )
 
         self.cutoff_panel.hide()
-        self.update_lpf_cutoff_label()
+        self.refresh_cutoff_panel()
+        # --------------------------------------------------
 
         button_row = QHBoxLayout()  # Creates the interface for the action buttons. They are in a horizontal orientation.
         button_row.addStretch()  # Adds a stretch to the left of the button_row layout.
@@ -668,6 +730,7 @@ class UploadAudioPage(QWidget):
         notch_btn = make_action_button("Notch", "rgb(17,17,232)", "rgb(17,17,202)", "rgb(8,8,138)")
         clear_btn = make_action_button("Clear", "rgb(180,180,180)", "rgb(160,160,160)", "rgb(130,130,130)")
         save_btn = make_action_button("Save Audio", "rgb(255,140,0)", "rgb(230,120,0)", "rgb(200,100,0)")
+        
 
         # When the buttons are clicked (or in our case, tapped), they will jump to different functions that do things.
         play_btn.clicked.connect(self.play_audio)
@@ -690,42 +753,49 @@ class UploadAudioPage(QWidget):
 
         # Creates the row of buttons.
         layout.addLayout(button_row)
-        # -----------------------------------------------------------------------------
-        # This code is purely for debugging filter buttons. When unused, just comment it out.
-        # The start of where I genuinely try learning lol
-        # Adds kind of a margin spacer BEFORE the button.
-        '''                       
-        debug_row = QHBoxLayout() # Creates a horizontal layout for the debug buttons.
-        debug_row.addStretch()    # Adds a stretch on both ends to center the buttons on the debug_row.
-        # Creates a button, adds text to it, and colors it.
-        self.test_lpf_btn = make_action_button("Test LPF", "rgb(90,90,140)", "rgb(80,80,130)", "rgb(70,70,120)")
-        self.test_hpf_btn = make_action_button("Test HPF", "rgb(90,90,140)", "rgb(80,80,130)", "rgb(70,70,120)")
-        self.test_bpf_btn = make_action_button("Test BPF", "rgb(90,90,140)", "rgb(80,80,130)", "rgb(70,70,120)")
-        self.test_eq_btn = make_action_button("Test EQ", "rgb(90,90,140)", "rgb(80,80,130)", "rgb(70,70,120)")
-        self.test_comp_btn = make_action_button("Test COMP", "rgb(140,90,140)", "rgb(130,80,130)", "rgb(120,70,120)")
-
-        # Adds the created buttons to the stove.
-        debug_row.addWidget(self.test_lpf_btn)
-        debug_row.addWidget(self.test_hpf_btn)
-        debug_row.addWidget(self.test_bpf_btn)
-        debug_row.addWidget(self.test_eq_btn)
-        debug_row.addWidget(self.test_comp_btn)
-
-        debug_row.addStretch()      # Another stretch that adds a spacer AFTER.
-
-        self.test_lpf_btn.clicked.connect(lambda: self.main_window.handleGPIO("LPF"))
-        self.test_hpf_btn.clicked.connect(lambda: self.main_window.handleGPIO("HPF"))
-        self.test_bpf_btn.clicked.connect(lambda: self.main_window.handleGPIO("BPF"))
-        self.test_eq_btn.clicked.connect(lambda: self.main_window.handleGPIO("EQ"))
-        self.test_comp_btn.clicked.connect(lambda: self.main_window.handleGPIO("COMP"))
-
-        layout.addLayout(debug_row) # Adds the new layout to the GUI.
-        '''
         # -----------------------------------------------------------------------------------------------------------------------
         bottom = QHBoxLayout()  # Creates a horizontal interface named "bottom."
         bottom.addStretch()  # Adds a stretch to the left of the back button.
         bottom.addStretch()  # Adds a stretch to the right of the back button.
         layout.addLayout(bottom)  # Creates the interface and adds it to the GUI.
+
+    def mark_filter_needs_update(self):
+        if self.main_window.currFilterMode in ["LPF", "HPF", "BPF"]:
+            self.update_filter_btn.show()
+
+    def update_active_filter(self):
+        mode = self.main_window.currFilterMode
+
+        if mode is None:
+            QMessageBox.information(self, "Update Filter", "No active filter to update.")
+            self.update_filter_btn.hide()
+            return
+
+        if self.main_window.currAudio is None:
+            QMessageBox.information(self, "Update Filter", "No audio file loaded.")
+            self.update_filter_btn.hide()
+            return
+
+        current_pos = self.player.position()
+
+        try:
+            tempOutFile = self.main_window.applyFilterToCurrAudio(mode)
+
+            if tempOutFile is not None:
+                self.main_window.procAudio = tempOutFile
+                self.file_label.setText(f"Selected file: {Path(tempOutFile).name}")
+
+                if self.current_plot_mode == "waveform":
+                    self.waveformInit()
+                elif self.current_plot_mode == "fft":
+                    self.plot_fft(Path(tempOutFile))
+
+                self.play_audio_at_position(current_pos)
+
+            self.update_filter_btn.hide()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Update Filter Error", str(e))
 
     # This is for the dropdown button feature.
     def change_plot_type(self, index):
@@ -744,6 +814,7 @@ class UploadAudioPage(QWidget):
 
             if plot_type == "Edit Cutoffs":
                 self.cutoff_panel.show()
+                self.refresh_cutoff_panel()
                 return
 
             self.cutoff_panel.hide()
@@ -764,14 +835,123 @@ class UploadAudioPage(QWidget):
             print("Dropdown error:", e)
 
     # Filter editing functions
-    def update_lpf_cutoff_label(self):
-        self.lpf_cutoff_label.setText(f"LPF Cutoff: {self.main_window.lpf_cutoff} Hz")
+    def hide_all_cutoff_controls(self):
+        self.cutoff_status_label.hide()
+
+        self.single_cutoff_label.hide()
+        self.single_cutoff_slider.hide()
+
+        self.bpf_lowcut_label.hide()
+        self.bpf_lowcut_slider.hide()
+
+        self.bpf_highcut_label.hide()
+        self.bpf_highcut_slider.hide()
 
 
-    def update_lpf_cutoff(self, value):
-        self.main_window.lpf_cutoff = value
-        self.update_lpf_cutoff_label()
+    def refresh_cutoff_panel(self):
+        mode = self.main_window.currFilterMode
 
+        self.update_filter_btn.hide()
+        self.hide_all_cutoff_controls()
+
+        if mode == "LPF":
+            self.cutoff_title_label.setText("Edit LPF Cutoff")
+
+            self.single_cutoff_slider.blockSignals(True)
+            self.single_cutoff_slider.setMinimum(50)
+            self.single_cutoff_slider.setMaximum(10000)
+            self.single_cutoff_slider.setValue(self.main_window.lpf_cutoff)
+            self.single_cutoff_slider.blockSignals(False)
+
+            self.single_cutoff_label.setText(f"LPF Cutoff: {self.main_window.lpf_cutoff} Hz")
+            self.single_cutoff_label.show()
+            self.single_cutoff_slider.show()
+
+        elif mode == "HPF":
+            self.cutoff_title_label.setText("Edit HPF Cutoff")
+
+            self.single_cutoff_slider.blockSignals(True)
+            self.single_cutoff_slider.setMinimum(50)
+            self.single_cutoff_slider.setMaximum(10000)
+            self.single_cutoff_slider.setValue(self.main_window.hpf_cutoff)
+            self.single_cutoff_slider.blockSignals(False)
+
+            self.single_cutoff_label.setText(f"HPF Cutoff: {self.main_window.hpf_cutoff} Hz")
+            self.single_cutoff_label.show()
+            self.single_cutoff_slider.show()
+
+        elif mode == "BPF":
+            self.cutoff_title_label.setText("Edit BPF Cutoffs")
+
+            self.bpf_lowcut_slider.blockSignals(True)
+            self.bpf_highcut_slider.blockSignals(True)
+
+            self.bpf_lowcut_slider.setValue(self.main_window.lowcut)
+            self.bpf_highcut_slider.setValue(self.main_window.highcut)
+
+            self.bpf_lowcut_slider.blockSignals(False)
+            self.bpf_highcut_slider.blockSignals(False)
+
+            self.bpf_lowcut_label.setText(f"BPF Low Cutoff: {self.main_window.lowcut} Hz")
+            self.bpf_highcut_label.setText(f"BPF High Cutoff: {self.main_window.highcut} Hz")
+
+            self.bpf_lowcut_label.show()
+            self.bpf_lowcut_slider.show()
+            self.bpf_highcut_label.show()
+            self.bpf_highcut_slider.show()
+
+        else:
+            self.cutoff_title_label.setText("Edit Cutoffs")
+            self.cutoff_status_label.setText("Apply LPF, HPF, or BPF first.")
+            self.cutoff_status_label.show()
+
+
+    def update_single_cutoff(self, value):
+        mode = self.main_window.currFilterMode
+
+        if mode == "LPF":
+            self.main_window.lpf_cutoff = value
+            self.single_cutoff_label.setText(f"LPF Cutoff: {value} Hz")
+            self.mark_filter_needs_update()
+
+        elif mode == "HPF":
+            self.main_window.hpf_cutoff = value
+            self.single_cutoff_label.setText(f"HPF Cutoff: {value} Hz")
+            self.mark_filter_needs_update()
+
+            if mode == "LPF":
+                self.main_window.lpf_cutoff = value
+                self.single_cutoff_label.setText(f"LPF Cutoff: {value} Hz")
+
+            elif mode == "HPF":
+                self.main_window.hpf_cutoff = value
+                self.single_cutoff_label.setText(f"HPF Cutoff: {value} Hz")
+
+    def update_bpf_lowcut(self, value):
+        if value >= self.main_window.highcut:
+            value = self.main_window.highcut - 50
+
+            self.bpf_lowcut_slider.blockSignals(True)
+            self.bpf_lowcut_slider.setValue(value)
+            self.bpf_lowcut_slider.blockSignals(False)
+
+        self.main_window.lowcut = value
+        self.bpf_lowcut_label.setText(f"BPF Low Cutoff: {self.main_window.lowcut} Hz")
+        self.mark_filter_needs_update()
+
+
+    def update_bpf_highcut(self, value):
+        if value <= self.main_window.lowcut:
+            value = self.main_window.lowcut + 50
+
+            self.bpf_highcut_slider.blockSignals(True)
+            self.bpf_highcut_slider.setValue(value)
+            self.bpf_highcut_slider.blockSignals(False)
+
+        self.main_window.highcut = value
+        self.bpf_highcut_label.setText(f"BPF High Cutoff: {self.main_window.highcut} Hz")
+        self.mark_filter_needs_update()
+# ----------------------------------------------------------
     def on_page_shown(self):
         pass # Ignores the automatic prompting of choosing a file.
 
