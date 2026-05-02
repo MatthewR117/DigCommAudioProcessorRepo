@@ -158,7 +158,7 @@ class MainWindow(QMainWindow):
                 self.lpfButton.when_activated   = lambda: self.gpioFilterSignal.emit("LPF")
                 self.hpfButton.when_activated   = lambda: self.gpioFilterSignal.emit("HPF")
                 self.bpfButton.when_activated   = lambda: self.gpioFilterSignal.emit("BPF")
-                self.autoQButton.when_activated = lambda: self.gpioFilterSignal.emit("AUTO")
+                self.autoQButton.when_activated = lambda: self.gpioFilterSignal.emit("AUTO_ON")
                 self.eqButton.when_activated    = lambda: self.gpioFilterSignal.emit("EQ")
                 self.compButton.when_activated  = lambda: self.gpioFilterSignal.emit("COMP")
                 self.pwrButton.when_activated   = lambda: self.gpioFilterSignal.emit("PWR")
@@ -166,7 +166,7 @@ class MainWindow(QMainWindow):
                 self.lpfButton.when_deactivated   = lambda: self.gpioFilterSignal.emit(None)
                 self.hpfButton.when_deactivated   = lambda: self.gpioFilterSignal.emit(None)
                 self.bpfButton.when_deactivated   = lambda: self.gpioFilterSignal.emit(None)
-                self.autoQButton.when_deactivated = lambda:self.gpioFilterSignal.emit(None)
+                self.autoQButton.when_deactivated = lambda:self.gpioFilterSignal.emit("AUTO_OFF")
                 self.eqButton.when_deactivated    = lambda:self.gpioFilterSignal.emit(None)
                 self.compButton.when_deactivated  = lambda:self.gpioFilterSignal.emit(None)
                 # --------------------------------------------------------------------------
@@ -260,25 +260,20 @@ class MainWindow(QMainWindow):
 
     # Checks which page the user is on (Upload/Live) and then moves to the correct functions (toggle/toggleLive).
     def routeGPIO(self, mode):
-    #    current = self.stack.currentWidget()
-    #
-    #   if current == self.upload_page:
-    #       self.toggleFilter(mode)
-    #    elif current == self.live_page:
-    #       self.toggleLiveFilter(mode)
         if mode is None:
             return
-
             # Auto Q button sets Q back to default/narrow value.
-        if mode == "AUTO":
-            if self.qLockedByButton:
-                self.qLockedByButton = False
-                print("Manual Q disal control restored.")
-            else:
-                self.qFactor = 30.0
-                self.qLockedByButton = True # When true, the pentiometer cannot affect the Q value.
-                print("Auto Q selected: Q locked at 30.0")
+        if mode == "AUTO_ON":
+            self.qFactor = 30.0
+            self.qLockedByButton = True
             self.update_q_displays()
+            print("Auto Q Active.")
+            return
+    
+        if mode == "AUTO_OFF":
+            self.qLockedByButton = False
+            self.update_q_displays()
+            print("Auto Q unactive.")
             return
 
         current = self.stack.currentWidget()
