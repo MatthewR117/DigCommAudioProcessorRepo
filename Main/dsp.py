@@ -24,68 +24,29 @@ def LPF(x, fs,fc = 3000):
     return sosfiltfilt(sos, x)
 
 # HPF
-def HPF(x, fs):
-    fc = 1000  # !! NEEDS TO BE VARIABLE VIA GUI !!
-    order = 4
-    nyq = 0.5 * fs
-    Wn = fc / nyq
-
-    # Construct Highpass filter with specs
-    sos = butter(order, Wn, btype="high", output="sos")
-
-    # Plot Bode
-    # plotBode(sos,fs,"High-Pass Filter Bode Plot")
-    y = sosfiltfilt(sos, x)
-
-    # Plot time graph
-    # plotTime(x,y,fs,title = "High-Pass Filter Time Graph")
+def HPF(x, fs,fc = 1000):
+    # Construct HPF filter
+    sos = butter(6, fc, btype="highpass", fs=fs, output="sos")
     return sosfiltfilt(sos, x)
 
 
 # BPF
-def BPF(x, fs):
-    lowcut = 500  # Hz Temp Default  !! NEEDS TO BE VARIABLE VIA GUI !!
-    highcut = 2400  # Hz Temp Default !! NEEDS TO BE VARIABLE VIA GUI !!
-    order = 4
-    nyq = 0.5 * fs
-    low = lowcut / nyq  # low and high act as fc
-    high = highcut / nyq
-
-    sos = butter(order, [low, high], btype='band', output="sos")
-    # plot bode
-    # plotBode(sos,fs, title="Band-Pass Bode Plot")
-    # y = sosfiltfilt(sos,x)
-
-    # plot time graph
-    # plotTime(x,y,fs,title="Band-Pass Filter Time Graph")
+def BPF(x, fs,lowcut = 500, highcut = 2500):
+    sos = butter(6,[lowcut,highcut], btype="bandpass",fs=fs,output="sos")
     return sosfiltfilt(sos, x)
 
 
 # NOTCH
-def NOTCH(x, fs):
-    # notchCount = int(input("Enter number of notches to filter (max of 4): ").strip())
-    # !! NEEDS TO BE VARIABLE VIA GUI !!
-    f0 = 500  # Hz
-    Q = 30
+def NOTCH(x, fs,f0 = 60,Q = 30):
     # create filter
     b, a = signal.iirnotch(f0, Q, fs)
-
     # convert to SOS for sosfiltfilt (TF2!!!!!!!!!)
     sos = signal.tf2sos(b, a)
-    # plot bode
-    # plotBode(b,a,fs, title="Notch Bode Plot")
-    # y = filtfilt(b,a,x)
     return signal.sosfiltfilt(sos, x)
 
 
 # 3 Band Multi Eq
-def threeBandEQ(x, fs):
-    # !! NEEDS TO BE VARIABLE VIA GUI !!
-    # gain in dB
-    lowGain = 3.0
-    midGain = 0.3
-    highGain = 0.2
-
+def threeBandEQ(x, fs, lowGain=1.0, midGain=1.0, highGain=1.0):
     low_fc = 100
     high_fc = 5000
     order = 4
@@ -198,7 +159,7 @@ def normalizeAudio(x):
 
 
 # ---------- !!! Apply filter function !!! ----------
-def applyFilter(infile, outfile, mode, normalize=True, lpf_cutoff=3000):
+def applyFilter(infile, outfile, mode, normalize=True, lpf_cutoff=3000,hpf_cutoff=1000, lowcut = 500, highcut = 2500, notch_f0 = 60, eq_low_gain = 1.0, eq_mid_gain = 1.0, eq_high_gain = 1.0):
     x, fs = sf.read(infile, always_2d=False)
 
     # convert to mono for rn
@@ -211,15 +172,15 @@ def applyFilter(infile, outfile, mode, normalize=True, lpf_cutoff=3000):
     if mode == "LPF":
         y = LPF(x, fs,fc=lpf_cutoff)
     elif mode == "HPF":
-        y = HPF(x, fs)
+        y = HPF(x, fs,fc=hpf_cutoff)
     elif mode == "BPF":
-        y = BPF(x, fs)
+        y = BPF(x, fs,lowcut = lowcut, highcut = highcut)
     elif mode == "EQ":
-        y = threeBandEQ(x, fs)
+        y = threeBandEQ(x, fs,lowGain = eq_low_gain, midGain = eq_mid_gain, highGain = eq_high_gain)
     elif mode == "COMP":
         y = COMP(x, fs)
     elif mode == "NOTCH":
-        y = NOTCH(x, fs)
+        y = NOTCH(x, fs,f0 = notch_f0)
     else:
         y = x
 
