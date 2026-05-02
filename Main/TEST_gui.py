@@ -196,8 +196,7 @@ class MainWindow(QMainWindow):
                 self.autoQButton.when_activated = lambda: self.gpioFilterSignal.emit("AUTO_ON")
                 self.eqButton.when_activated = lambda: self.gpioFilterSignal.emit("EQ")
                 self.compButton.when_activated = lambda: self.gpioFilterSignal.emit("COMP")
-                #self.pwrButton.when_activated = lambda: self.gpioFilterSignal.emit("PWR")
-                self.pwrButton.when_activated = self.display_off
+                self.pwrButton.when_pressed = self.toggleDisplayOverlay
                 # ------------- GPIO Not Pressed ------------------------------
                 self.lpfButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
                 self.hpfButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
@@ -205,7 +204,6 @@ class MainWindow(QMainWindow):
                 self.autoQButton.when_deactivated = lambda: self.gpioFilterSignal.emit("AUTO_OFF")
                 self.eqButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
                 self.compButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
-                self.pwrButton.when_deactivated = self.display_on
 
                 self.gpio_enabled = True
                 print("GPIO buttons connected.")
@@ -248,15 +246,19 @@ class MainWindow(QMainWindow):
             print(f"{mode} failed.")
             QMessageBox.warning(self, "Processing Error", str(e))
 
-    def display_off(self):
-        print("Display overlay ON!")
-        self.sleep_overlay.setGeometry(self.rect())
-        self.sleep_overlay.raise_()
-        self.sleep_overlay.show()
+    def toggleDisplayOverlay(self):
+        self.displaySleeping = not self.displaySleeping
+        if self.displaySleeping:
+            self.upload_page.player.pause()
 
-    def display_on(self):
-        print("Display overlay OFF!")
-        self.sleep_overlay.hide()
+        if self.displaySleeping:
+            print("Display overlay ON")
+            self.sleep_overlay.setGeometry(self.rect())
+            self.sleep_overlay.raise_()
+            self.sleep_overlay.show()
+        else:
+            print("Display overlay OFF")
+            self.sleep_overlay.hide()
 
     def applyFilterToCurrAudio(self, mode):
         if self.currAudio is None:
