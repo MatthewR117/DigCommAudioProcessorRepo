@@ -136,8 +136,6 @@ class MainWindow(QMainWindow):
         self.audioPos = None
         self.liveFilterMode = None
         #---------------------------------------
-        self.volumePercent = 50
-        self.bitDepth = 16
         # ---- Upload-only Q Factor Control ----
         # The Q dial only matters on Upload now. Live and Record ignore it.
         self.qFactor = 30.0
@@ -285,23 +283,22 @@ class MainWindow(QMainWindow):
     # Upload-only Q / Potentiometer Logic
     # ------------------------------------------------------------------------------------------------------------------
     def update_pot_controls(self):
+        # Q dial only updates while Upload page is visible.
         if self.stack.currentWidget() is not self.upload_page:
             return
 
-        controls = self.pot_reader.read_controls()
-        if controls is None:
+        q = self.pot_reader.read_q()
+
+        if q is None:
             return
 
-        volume, bit_depth, q = controls
+        # If Auto Q button locked the value, ignore the dial.
+        if self.qLockedByButton:
+            self.update_q_displays()
+            return
 
-        self.volumePercent = volume
-        self.bitDepth = bit_depth
-
-        # GUI playback volume only
-        self.upload_page.audio_output.setVolume(self.volumePercent / 100.0)
-
-        if not self.qLockedByButton:
-            self.qFactor = q
+        self.qFactor = q
+        self.update_q_displays()
 
     def get_current_q(self):
         return self.qFactor
