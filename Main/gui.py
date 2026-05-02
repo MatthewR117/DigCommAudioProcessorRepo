@@ -773,6 +773,7 @@ class UploadAudioPage(QWidget):
 
         self.plot_select = QComboBox()
         self.plot_select.addItem("Choose File")
+        self.plot_select.addItem("Bode Plot")
         self.plot_select.addItem("Waveform")
         self.plot_select.addItem("FFT")
         self.plot_select.setFixedSize(180, 50)
@@ -881,6 +882,8 @@ class UploadAudioPage(QWidget):
                 self.show_waveform()
             elif plot_type == "FFT":
                 self.show_fft()
+            elif plot_type == "Bode Plot":
+                self.show_bode()
 
         except Exception as e:
             print("Dropdown error:", e)
@@ -1024,6 +1027,64 @@ class UploadAudioPage(QWidget):
 
         self.current_plot_mode = "waveform"
         self.waveformInit()
+
+    def show_bode(self):
+        if self.main_window.currFilterMode is None: # Prevents the bode plot when no filter is active.
+            QMessageBox.information(self, "Bode Plot", "Apply a filter first to view its Bode plot.")
+            return
+
+        audio_path = self.get_active_audio_path()
+        if audio_path is None: # Prevents the bode plot from appearing without an audio file.
+            QMessageBox.information(self, "Bode Plot", "Please load an audio file first.")
+
+        try:
+            self.current_plot_mode = "bode"
+            self.plot_bode(Path(audio_path))
+        except Exception as e:
+            QMessageBox.warning(self, "Bode Plot Error", str(e))
+
+    def plot_bode(self, file_path: Path):
+        from scipy.signal import butter, freqz, iirnotch
+
+        # Load only to get sample rate.
+        _, fs = self.load_audio_mono(file_path)
+
+        mode = self.main_window.currFilterMode
+
+        if mode == "LPF":
+            cutoff = 3000
+            b, a = butter(4, cutoff / (0.5 * fs), btype = "low")
+        elif mode == "HPF":
+            cutoff = 1000
+            b, a = butter(4, cutoff / (0.5 * fs), btype = "high")
+        elif mode == "BPF":
+            lowcut = 500
+            highcut = 3000
+            b, a = butter(4, [lowcut / (0.5 * fs), highcut / (0.5 * fs)], btype = "band")
+        elif mode == "NOTCH":
+            notch_freq = 60.0
+            q = self.main_window.get_current_q()
+            b, a = iirnotch(notch_freq, q, fs)
+        else:
+            QMessageBox.information(self, "Bode Plot", f"Bode plot is not available for {mode}.")
+            return
+
+        w, h = freqz(b, a, worN = 4096, fs = fs)
+        mag_db = 20 * np.log10(np.maximum(np.abs(h), 1e-12))
+
+        self._ensure_canvas()
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+
+        ax.semilogx(w, mag_db, linewidth = 1.5)
+        ax.set_title(f"Bode Plot - {mode}")
+        ax.set_xlabel("Frequency (Hz)")
+        ax.set_ylabel("Magnitude (dB)")
+        ax.grid(True, which = "both", alpha = 0.3)
+        ax.set_xlim(10, fs / 2)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
 
     def clear_audio(self):
         self.main_window.deleteTemp()
