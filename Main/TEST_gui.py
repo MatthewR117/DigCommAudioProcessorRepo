@@ -214,12 +214,13 @@ class MainWindow(QMainWindow):
     # POT READER FUNCTION MAY BE TEMP. *******************
     #------------------------------------------
     def update_pot_controls(self):
-        q = self.pot_reader.read_q()
+        if self.stack.currentWidget() is not self.upload_page:
+            return
 
+        q = self.pot_reader.read_q()
         if q is None:
             return
 
-        # If auto Q button locked the value, ignore the potentiometer dial.
         if self.qLockedByButton:
             self.update_q_displays()
             return
@@ -231,14 +232,10 @@ class MainWindow(QMainWindow):
         return self.qFactor
 
     def update_q_displays(self):
-        lock_text = "AUTO" if self.qLockedByButton else "DIAL"
-        text = f"Q: {self.get_current_q():.2f} | {lock_text}"
+        text = f"Q: {self.get_current_q():.2f} | {'AUTO' if self.qLockedByButton else 'DIAL'}"
 
         if hasattr(self.upload_page, "q_label"):
             self.upload_page.q_label.setText(text)
-
-        if hasattr(self.live_page, "q_label"):
-            self.live_page.q_label.setText(text)
     # ------------------------------------------------------------------------------------------------------------------
     # Apply filter to current audio function
     #-------------------------------------------------------------------------------------------------------------------
@@ -262,23 +259,23 @@ class MainWindow(QMainWindow):
     def routeGPIO(self, mode):
         if mode is None:
             return
-            # Auto Q button sets Q back to default/narrow value.
-        if mode == "AUTO_ON":
-            self.qFactor = 30.0
-            self.qLockedByButton = True
-            self.update_q_displays()
-            print("Auto Q Active.")
-            return
-    
-        if mode == "AUTO_OFF":
-            self.qLockedByButton = False
-            self.update_q_displays()
-            print("Auto Q unactive.")
-            return
 
         current = self.stack.currentWidget()
 
         if current == self.upload_page:
+            if mode == "AUTO_ON":
+                self.qFactor = 30.0
+                self.qLockedByButton = True
+                self.update_q_displays()
+                print("Auto Q ON: Q locked at 30.0")
+                return
+
+            if mode == "AUTO_OFF":
+                self.qLockedByButton = False
+                self.update_q_displays()
+                print("Auto Q OFF: dial control restored")
+                return
+
             self.toggleFilter(mode)
 
         elif current == self.live_page:
@@ -1348,7 +1345,7 @@ class LiveAudioPage(QWidget):
         try:
             # Create real-time audio stream.
             self.stream = sd.Stream(samplerate = self.sample_rate, blocksize = self.block_size,
-                                    channels = self.channels, dtype = "float32", callback = self.audio_callback)
+                                    channels = (self.channels, self.channels), dtype = "float32", callback = self.audio_callback)
             self.stream.start()
             self.timer.start() # Start waveform updates.
             self.status_label.setText("Live audio running!")
