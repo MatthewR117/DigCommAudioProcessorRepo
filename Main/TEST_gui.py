@@ -135,7 +135,9 @@ class MainWindow(QMainWindow):
         self.tempAudio = None
         self.audioPos = None
         self.liveFilterMode = None
-
+        #---------------------------------------
+        self.volumePercent = 50
+        self.bitDepth = 16
         # ---- Upload-only Q Factor Control ----
         # The Q dial only matters on Upload now. Live and Record ignore it.
         self.qFactor = 30.0
@@ -171,19 +173,21 @@ class MainWindow(QMainWindow):
                 self.compButton = Button(15, pull_up=True, bounce_time=0.2)
                 self.pwrButton = Button(20, pull_up=True, bounce_time=0.2)
 
-                # Momentary filter buttons - each press toggles the filter through routeGPIO().
-                self.lpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("LPF")
-                self.hpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("HPF")
-                self.bpfButton.when_pressed = lambda: self.gpioFilterSignal.emit("BPF")
-                self.eqButton.when_pressed = lambda: self.gpioFilterSignal.emit("EQ")
-                self.compButton.when_pressed = lambda: self.gpioFilterSignal.emit("COMP")
-                self.pwrButton.when_pressed = lambda: self.gpioFilterSignal.emit("PWR")
-
-                # Auto Q is treated as a latching/toggle button.
-                # Activated = lock Q at 30 on Upload page.
-                # Deactivated = return to dial control on Upload page.
+                # ------------ GPIO Pressed ----------------------------------
+                self.lpfButton.when_activated = lambda: self.gpioFilterSignal.emit("LPF")
+                self.hpfButton.when_activated = lambda: self.gpioFilterSignal.emit("HPF")
+                self.bpfButton.when_activated = lambda: self.gpioFilterSignal.emit("BPF")
                 self.autoQButton.when_activated = lambda: self.gpioFilterSignal.emit("AUTO_ON")
+                self.eqButton.when_activated = lambda: self.gpioFilterSignal.emit("EQ")
+                self.compButton.when_activated = lambda: self.gpioFilterSignal.emit("COMP")
+                self.pwrButton.when_activated = lambda: self.gpioFilterSignal.emit("PWR")
+                # ------------- GPIO Not Pressed ------------------------------
+                self.lpfButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
+                self.hpfButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
+                self.bpfButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
                 self.autoQButton.when_deactivated = lambda: self.gpioFilterSignal.emit("AUTO_OFF")
+                self.eqButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
+                self.compButton.when_deactivated = lambda: self.gpioFilterSignal.emit(None)
 
                 self.gpio_enabled = True
                 print("GPIO buttons connected.")
@@ -252,6 +256,7 @@ class MainWindow(QMainWindow):
 
         # Upload-only Auto Q behavior.
         if current == self.upload_page:
+            self.toggleFilter(mode)
             if mode == "AUTO_ON":
                 self.qFactor = 30.0
                 self.qLockedByButton = True
@@ -265,15 +270,12 @@ class MainWindow(QMainWindow):
                 print("Auto Q OFF: dial control restored")
                 return
 
-            self.toggleFilter(mode)
-
         # Live ignores Auto Q and dial logic.
         elif current == self.live_page:
+            self.toggleLiveFilter(mode)
             if mode in ("AUTO_ON", "AUTO_OFF", "AUTO"):
                 print("Auto Q ignored on Live page.")
                 return
-
-            self.toggleLiveFilter(mode)
 
         # Record and other pages ignore filter GPIO.
         else:
@@ -283,22 +285,23 @@ class MainWindow(QMainWindow):
     # Upload-only Q / Potentiometer Logic
     # ------------------------------------------------------------------------------------------------------------------
     def update_pot_controls(self):
-        # Q dial only updates while Upload page is visible.
         if self.stack.currentWidget() is not self.upload_page:
             return
 
-        q = self.pot_reader.read_q()
-
-        if q is None:
+        controls = self.pot_reader.read_controls()
+        if controls is None:
             return
 
-        # If Auto Q button locked the value, ignore the dial.
-        if self.qLockedByButton:
-            self.update_q_displays()
-            return
+        volume, bit_depth, q = controls
 
-        self.qFactor = q
-        self.update_q_displays()
+        self.volumePercent = volume
+        self.bitDepth = bit_depth
+
+        # GUI playback volume only
+        self.upload_page.audio_output.setVolume(self.volumePercent / 100.0)
+
+        if not self.qLockedByButton:
+            self.qFactor = q
 
     def get_current_q(self):
         return self.qFactor
