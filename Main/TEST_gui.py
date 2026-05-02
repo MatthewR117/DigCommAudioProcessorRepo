@@ -127,8 +127,6 @@ class MainWindow(QMainWindow):
         self.liveFilterMode = None # Remembers what filter is active during live audio.
         #----------------------------------------------
         # These shared variables may be temporary...
-        self.autoQEnabled = False
-        self.defaultQ = 30.0
         self.qFactor = 30.0
 
         self.pot_reader = PotReader()
@@ -221,23 +219,19 @@ class MainWindow(QMainWindow):
             return
 
         self.qFactor = q
-
-        if self.autoQEnabled:
-            print(f"Auto Q active | Q = {self.qFactor:.2f}")
-
-    def toggleAutoQ(self):
-        self.autoQEnabled = not self.autoQEnabled
-
-        if self.autoQEnabled:
-            print("Auto Q enabled.")
-        else:
-            print("Auto Q disabled.")
+        self.update_q_displays()
 
     def get_current_q(self):
-        if self.autoQEnabled:
-            return self.qFactor
+        return self.qFactor
 
-        return self.defaultQ
+    def update_q_displays(self):
+        text = f"Q: {self.get_current_q():.2f}"
+
+        if hasattr(self.upload_page, "q_label"):
+            self.upload_page.q_label.setText(text)
+
+        if hasattr(self.live_page, "q_label"):
+            self.live_page.q_label.setText(text)
     # ------------------------------------------------------------------------------------------------------------------
     # Apply filter to current audio function
     #-------------------------------------------------------------------------------------------------------------------
@@ -268,8 +262,11 @@ class MainWindow(QMainWindow):
         if mode is None:
             return
 
+            # Auto Q button sets Q back to default/narrow value.
         if mode == "AUTO":
-            self.toggleAutoQ()
+            self.qFactor = 30.0
+            self.update_q_displays()
+            print("Auto Q selected: Q = 30.0")
             return
 
         current = self.stack.currentWidget()
@@ -279,7 +276,7 @@ class MainWindow(QMainWindow):
 
         elif current == self.live_page:
             self.toggleLiveFilter(mode)
-    #-----------------------------------------------
+    #------------------------------------------
 
     # delete temp audio function
     def deleteTemp(self):
@@ -689,7 +686,12 @@ class UploadAudioPage(QWidget):
         title_row.addWidget(self.plot_select)
 
         layout.addLayout(title_row)
-
+        # ----------***********TEMP.*****************
+        self.q_label = QLabel("Q: 30.00")
+        self.q_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.q_label.setStyleSheet("font-size: 14px; color: white;")
+        layout.addWidget(self.q_label)
+        # --------------------------------------------
         self.file_label = QLabel("Selected file: (none)")
         self.file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.file_label.setWordWrap(True)
