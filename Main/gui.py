@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QFileDialog, QMessageBox,
     QFrame, QGridLayout, QComboBox, QListWidget,
-    QListWidgetItem
+    QListWidgetItem, QSlider
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from fontTools.merge import layout
@@ -49,10 +49,12 @@ date = datetime.datetime.now().strftime("%Y-%m-%d")
 class MainWindow(QMainWindow):
     gpioFilterSignal = pyqtSignal(str)
 
+    # ---- Filter Cutoff Defaults ----
+    lpf_cutoff =   3000 # Hz
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Digital Audio Post Processor")  # Set the title of the main menu.
+        self.setWindowTitle("NIGGER COCK")  # Set the title of the main menu.
         self.setFixedSize(1024, 600)  # Match the 7" display resolution automatically.
         self.setStyleSheet(
             "background-color: rgb(150, 150, 150);")  # Change the background color of the main menu (gray).
@@ -82,6 +84,7 @@ class MainWindow(QMainWindow):
         self.audioPos = None       # Hold the timestamp of the current audio that is playing
         self.liveFilterMode = None # Remembers what filter is active during live audio.
         self.gpioFilterSignal.connect(self.routeGPIO)
+        #self.lpf_cutoff =   3000 # Hz
         self.show_menu()
 
         # ----------- Filter GPIO Setup --------------------
@@ -167,7 +170,13 @@ class MainWindow(QMainWindow):
         # Save file name for TEMP filtered audio
         output_path = Path(f"TEMP_{self.currAudio.stem}_{mode}_{date}.wav")
 
-        applyFilter(str(self.currAudio), str(output_path), mode, normalize=True)
+        applyFilter(
+        str(self.currAudio),
+        str(output_path),
+        mode,
+        normalize=True,
+        lpf_cutoff=self.lpf_cutoff
+    )
 
         self.tempAudio = output_path
         self.currFilterMode = mode
@@ -574,9 +583,10 @@ class UploadAudioPage(QWidget):
 
         # This box is for the dropdown selection creation. It'll contain Waveform, FFT, Bode, etc.
         self.plot_select = QComboBox()
-        self.plot_select.addItem("Choose File")
         self.plot_select.addItem("Waveform")
+        self.plot_select.addItem("Choose File")
         self.plot_select.addItem("FFT")
+        self.plot_select.addItem("Edit Cutoffs")
         self.plot_select.setFixedSize(180, 50)
         self.plot_select.setStyleSheet("""QComboBox{font-size: 17px; padding: 6px; border-raidus: 10px;
                 background-color: rgb(128,128,128); color: white;}""")
@@ -613,6 +623,41 @@ class UploadAudioPage(QWidget):
         plot_shell_layout.addLayout(self.canvas_container)
 
         layout.addWidget(plot_shell, stretch=1)
+        
+        # ---------------- LPF Cutoff Editor ----------------
+        self.cutoff_panel = QWidget()
+        self.cutoff_panel.setStyleSheet("""
+            QWidget {
+                background-color: rgb(90, 90, 90);
+                border-radius: 12px;
+            }
+            QLabel {
+                color: white;
+                font-size: 14px;
+            }
+        """)
+
+        cutoff_layout = QVBoxLayout(self.cutoff_panel)
+        cutoff_layout.setContentsMargins(12, 8, 12, 8)
+        cutoff_layout.setSpacing(6)
+
+        self.lpf_cutoff_label = QLabel()
+        self.lpf_cutoff_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.lpf_cutoff_slider = QSlider(Qt.Orientation.Horizontal)
+        self.lpf_cutoff_slider.setMinimum(100)
+        self.lpf_cutoff_slider.setMaximum(10000)
+        self.lpf_cutoff_slider.setValue(self.main_window.lpf_cutoff)
+        self.lpf_cutoff_slider.valueChanged.connect(self.update_lpf_cutoff)
+
+        cutoff_layout.addWidget(self.lpf_cutoff_label)
+        cutoff_layout.addWidget(self.lpf_cutoff_slider)
+    #-------------------------------------------
+
+        layout.addWidget(self.cutoff_panel)
+
+        self.cutoff_panel.hide()
+        self.update_lpf_cutoff_label()
 
         button_row = QHBoxLayout()  # Creates the interface for the action buttons. They are in a horizontal orientation.
         button_row.addStretch()  # Adds a stretch to the left of the button_row layout.
@@ -689,13 +734,19 @@ class UploadAudioPage(QWidget):
             print("Dropdown selected:", plot_type)
 
             if plot_type == "Choose File":
+                self.cutoff_panel.hide()
                 self.main_window.show_audio_browser()
 
-                # Reset dropdown box after the file dialog closes.
                 self.plot_select.blockSignals(True)
                 self.plot_select.setCurrentText("Waveform")
                 self.plot_select.blockSignals(False)
                 return
+
+            if plot_type == "Edit Cutoffs":
+                self.cutoff_panel.show()
+                return
+
+            self.cutoff_panel.hide()
 
             audio_path = self.get_active_audio_path()
             if audio_path is None:
@@ -706,9 +757,20 @@ class UploadAudioPage(QWidget):
                 self.show_waveform()
             elif plot_type == "FFT":
                 self.show_fft()
+            #elif plot_type == "Bode Plot":
+            #   self.show_bode()
 
         except Exception as e:
             print("Dropdown error:", e)
+
+    # Filter editing functions
+    def update_lpf_cutoff_label(self):
+        self.lpf_cutoff_label.setText(f"LPF Cutoff: {self.main_window.lpf_cutoff} Hz")
+
+
+    def update_lpf_cutoff(self, value):
+        self.main_window.lpf_cutoff = value
+        self.update_lpf_cutoff_label()
 
     def on_page_shown(self):
         pass # Ignores the automatic prompting of choosing a file.
